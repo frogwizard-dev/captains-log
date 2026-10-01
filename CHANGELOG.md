@@ -1,5 +1,9 @@
 # Captain's Log
 
+## 0.5.1
+
+- No changes in the game. From this version, releases are published automatically to CurseForge and GitHub.
+
 ## 0.5.0
 
 ### Pictures of the journey
@@ -15,6 +19,10 @@
 - Scroll bars on every page and list.
 - Pages keep their place when they update (pressing a button, a new kill) instead of jumping back to the top.
 
+## 0.5.1
+
+- No changes in the game. From this version, releases are published automatically to CurseForge and GitHub.
+
 ## 0.4.1
 
 ### Lands
@@ -26,6 +34,10 @@
 
 ### Fixes
 - Other players' totems, pets and companions are no longer recorded as people (or as creatures in the bestiary). Ones already recorded are cleared out.
+
+## 0.5.1
+
+- No changes in the game. From this version, releases are published automatically to CurseForge and GitHub.
 
 ## 0.4.0
 

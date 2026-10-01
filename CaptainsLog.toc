@@ -1,7 +1,7 @@
 ## Interface: 16001, 120000, 120001, 120005, 120007, 120100
 ## Title: Captain's Log
 ## Notes: A personal journal that writes itself: a bestiary, a daily log, quests, people, lands and dungeons, all linked together and pinned to your world map.
-## Version: 0.5.0
+## Version: 0.5.1
 ## X-Curse-Project-ID: 1719659
 ## SavedVariablesPerCharacter: CaptainsLogDB
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
