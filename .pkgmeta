@@ -1,0 +1,8 @@
+package-as: CaptainsLog
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - Images

@@ -1,0 +1,30 @@
+## Interface: 16001, 120000, 120001, 120005, 120007, 120100
+## Title: Captain's Log
+## Notes: A personal journal that writes itself: a bestiary, a daily log, quests, people, lands and dungeons, all linked together and pinned to your world map.
+## Version: 0.5.0
+## SavedVariablesPerCharacter: CaptainsLogDB
+## IconTexture: Interface\Icons\INV_Misc_Book_09
+## AddonCompartmentFunc: CaptainsLog_OnCompartmentClick
+
+Options.lua
+Core.lua
+Tracker.lua
+Quests.lua
+Combat.lua
+Dungeons.lua
+NPCs.lua
+Photos.lua
+Shots.lua
+Tooltip.lua
+Probe.lua
+UI\Widgets.lua
+UI\Book.lua
+UI\Links.lua
+UI\MapPins.lua
+UI\LogPage.lua
+UI\BestiaryPage.lua
+UI\PeoplePage.lua
+UI\QuestsPage.lua
+UI\ZonesPage.lua
+UI\DungeonsPage.lua
+UI\SettingsPage.lua

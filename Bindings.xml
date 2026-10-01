@@ -1,0 +1,8 @@
+<Bindings>
+    <Binding name="CAPTAINSLOG_PICTURE" header="CAPTAINSLOG" category="ADDONS">
+        CaptainsLog_TakePicture()
+    </Binding>
+    <Binding name="CAPTAINSLOG_TOGGLE" category="ADDONS">
+        CaptainsLog_Toggle()
+    </Binding>
+</Bindings>
