@@ -157,6 +157,46 @@ local function LootText(loot)
     return JoinList(parts)
 end
 
+-- A catch's name from the fishing journal (or the item cache, if the journal was erased).
+local function CatchName(id)
+    local e = ns.FishingData().items[id]
+    return (e and e.name) or C_Item.GetItemNameByID and C_Item.GetItemNameByID(id) or ("item " .. id)
+end
+
+-- "Caught 12 fish at Auberdine, Darkshore (9 Raw Brilliant Smallfish, 2 ... and 1 ...), among
+-- them your first Firefin Snapper." The three commonest catches are named.
+local function FishText(ev)
+    local places = {}
+    for _, p in ipairs(ev.places or {}) do
+        if p ~= ev.zone then places[#places + 1] = p end
+    end
+    local where = #places > 0 and ("at " .. JoinList(places) .. ", " .. ev.zone) or ("in " .. ev.zone)
+    local catch = {}
+    for _, c in ipairs(ev.catch or {}) do catch[#catch + 1] = c end
+    table.sort(catch, function(a, b) return a[2] > b[2] end)
+    local firsts = ev.firsts or {}
+    if #catch == 1 and ev.n == 1 then
+        -- A single catch: "Caught a Firefin Snapper at ..., your first."
+        local id = catch[1][1]
+        local name = CatchName(id)
+        local article = name:match("^[AEIOUaeiou]") and "an " or "a "
+        if firsts[1] == id then return "Caught " .. article .. UI.FishLink(id, name) .. " " .. where .. ", your first." end
+        return "Caught " .. article .. name .. " " .. where .. "."
+    end
+    local parts = {}
+    for i = 1, math.min(3, #catch) do parts[i] = catch[i][2] .. " " .. CatchName(catch[i][1]) end
+    if #catch > 3 then parts[#parts + 1] = (#catch - 3) .. (#catch == 4 and " other kind" or " other kinds") end
+    local s = string.format("Caught %d fish %s (%s)", ev.n, where, JoinList(parts))
+    if #firsts > 0 then
+        -- Up to four named; a first day at the water would otherwise list everything twice.
+        local links = {}
+        for i = 1, math.min(4, #firsts) do links[i] = UI.FishLink(firsts[i], CatchName(firsts[i])) end
+        if #firsts > 4 then links[#links + 1] = (#firsts - 4) .. " more" end
+        s = s .. ", among them your first " .. JoinList(links)
+    end
+    return s .. "."
+end
+
 local WRITERS = {
     kill = function(ev)
         local tag = UNIQUE[ev.classification] and " (rare)" or (ev.classification == "elite" and " (elite)" or "")
@@ -230,6 +270,10 @@ local WRITERS = {
     npc = function(ev)
         return "Met " .. ev.name .. (ev.title and (", " .. ev.title) or "") .. "."
     end,
+    fish = FishText,
+    fishskill = function(ev)
+        return "|cff7a1f0dYour fishing skill reached " .. ev.rank .. "!|r"
+    end,
     photo = function(ev, key)
         local p = ns.FindPhoto(ev.photoT)
         if not p then return nil end -- removed from the journal
@@ -269,6 +313,7 @@ function Page:RenderDay(key)
     if d.xp > 0 then doc:Line("Experience gained: " .. ns.Number(d.xp)) end
     if d.kills > 0 then doc:Line("Creatures slain: " .. ns.Number(d.kills)) end
     if d.discovered > 0 then doc:Line("New bestiary entries: " .. d.discovered) end
+    if (d.fish or 0) > 0 then doc:Line("Fish caught: " .. ns.Number(d.fish)) end
     if d.moneyIn > 0 then doc:Line("Coin earned: " .. ns.Money(d.moneyIn)) end
     if d.moneyOut > 0 then doc:Line("Coin spent: " .. ns.Money(d.moneyOut)) end
 

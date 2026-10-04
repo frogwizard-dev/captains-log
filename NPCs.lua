@@ -32,13 +32,18 @@ function ns.NPC(id, name)
     return n
 end
 
--- Records a friendly NPC. `talked` = you're interacting with it right now (a precise location).
-local function Meet(unit, talked)
+-- Records a friendly NPC, or any you talk to. `talking` = you're interacting with it now (gossip,
+-- quests, a shop...); `talked` = and it's a new visit (a precise location, a visit counted).
+local function Meet(unit, talked, talking)
     if not UnitExists(unit) or UnitIsPlayer(unit) or ns.IsControlled(unit) then return end
     local id = ns.NpcID(UnitGUID(unit))
     if not id then return end
-    local attackable = UnitCanAttack("player", unit)
-    if issecret(attackable) or attackable then return end -- enemies belong to the bestiary
+    -- Enemies belong to the bestiary. But anyone you talk to (gossip, quests, a shop, a flight
+    -- master...) is a person, even one you could attack: neutral goblins in Ratchet and Booty Bay.
+    if not talking then
+        local attackable = UnitCanAttack("player", unit)
+        if issecret(attackable) or attackable then return end
+    end
 
     local name = UnitName(unit)
     if issecret(name) then name = nil end
@@ -89,7 +94,7 @@ local function Talk(role)
     -- only the first one within a minute counts as a visit.
     local current = ns.NpcID(UnitGUID("npc"))
     local sameVisit = talking and talking.id == current and GetTime() - talking.time < 60
-    local id, n = Meet("npc", not sameVisit)
+    local id, n = Meet("npc", not sameVisit, true)
     if not id then return end
     talking = { id = id, time = GetTime() }
     if role then n.roles[role] = true end

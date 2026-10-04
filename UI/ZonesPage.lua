@@ -249,6 +249,9 @@ function Page:RenderZone(name)
     doc:Line("Time spent: " .. ns.Duration(z.seconds))
     if z.kills > 0 then doc:Line("Creatures slain: " .. ns.Number(z.kills)) end
     if z.quests > 0 then doc:Line("Quests completed: " .. z.quests) end
+    local fish = 0
+    for _, spot in pairs(ns.FishingData().spots[name] or {}) do fish = fish + spot.n end
+    if fish > 0 then doc:Line("Fish caught: " .. ns.Number(fish)) end
     if z.deaths > 0 then doc:Line("Deaths: " .. z.deaths, UI.ACCENT) end
 
     -- Everything below is gathered from the other sections of the book.
@@ -283,6 +286,20 @@ function Page:RenderZone(name)
         for _, e in ipairs(places) do
             doc:Line(string.format("%s  |cff6b5d4f%s, level %d|r", e.name, ns.Date(e.p.t), e.p.level or 0))
         end
+    end
+
+    -- Where you've fished here, each opening its spot in Fishing.
+    local fished = ns.FishingSpotsIn(name)
+    if #fished > 0 then
+        doc:Heading("Fishing here")
+        for i = 1, math.min(#fished, LIST_MAX) do
+            local e = fished[i]
+            local top = ns.FishTopCatch(e.spot)
+            local topName = top and ns.FishingData().items[top] and ns.FishingData().items[top].name
+            doc:Line(string.format("%s  x%d%s", UI.FishSpotLink(name, e.place), e.spot.n,
+                topName and ("  |cff6b5d4fmostly " .. topName .. "|r") or ""))
+        end
+        More(doc, LIST_MAX, #fished, "Fishing")
     end
 
     -- Pictures taken in this land, each opening its day's pictures.

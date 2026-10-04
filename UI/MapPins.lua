@@ -4,8 +4,9 @@ local UI = ns.UI
 -- Captain's Log on the game's own world map. A Map button "projects" an entry (a quest, a
 -- creature, a person, a land) onto it as pins, which stay until you right-click them away.
 -- Pinned entries are saved in db.mapLayers as { kind, id } (kinds: questgiver, questfoes, mob,
--- npc, zone); their pins are rebuilt from the
--- journal each time the map draws, so they keep up with new kills.
+-- npc, zone, photo, fish, fishspot); their pins are rebuilt from the
+-- journal each time the map draws, so they keep up with new kills. Your fishing spots are the
+-- one set shown by a setting (Settings > fishing spots) instead of a Map button.
 --
 -- The world map plumbing follows HereBeDragons-Pins: our own pin pool registered with the map
 -- (no XML template needed) and a data provider the map asks for pins whenever it changes.
@@ -141,6 +142,56 @@ builders.zone = function(name)
     end
     return name, "zones", pins
 end
+
+-- Fishing (Fishing.lua): the points you cast from, each counting the casts made near it, in a
+-- pool's colour where most of them were into pools. A click opens the spot (or `sel`).
+local function FishPins(pins, zone, place, spot, label, sel)
+    if not spot.mapID then return end
+    for _, p in ipairs(spot.pts or {}) do
+        local casts, pooled = p[3] or 1, p[4] or 0
+        pins[#pins + 1] = { spot.mapID, p[1], p[2], pooled * 2 > casts and "pool" or "fish", label,
+            note = string.format("Fished here %d %s%s", casts, casts == 1 and "time" or "times",
+                pooled > 0 and string.format(", %d into a pool", pooled) or ""),
+            sel = sel or ns.FishSpotKey(zone, place) }
+    end
+end
+
+-- One catch: everywhere you've caught it.
+builders.fish = function(id)
+    local e = ns.FishingData().items[id]
+    if not e then return end
+    local pins = {}
+    for zone, places in pairs(ns.FishingData().spots) do
+        for place, spot in pairs(places) do
+            local s = spot.items[id]
+            if s then
+                FishPins(pins, zone, place, spot, string.format("%s: %d at %s", e.name or "?", s.n, ns.FishSpotName(zone, place)))
+            end
+        end
+    end
+    return e.name or "A catch", "fishing", pins, id
+end
+
+-- One fishing spot (by its key).
+builders.fishspot = function(key)
+    local spot, zone, place = ns.FishSpot(key)
+    if not spot then return end
+    local pins = {}
+    FishPins(pins, zone, place, spot, ns.FishSpotName(zone, place))
+    return ns.FishSpotName(zone, place) .. " (fishing)", "fishing", pins, key
+end
+
+-- Every spot you've fished from: shown by a setting rather than a Map button (FISH_LAYER).
+builders.fishing = function()
+    local pins = {}
+    for zone, places in pairs(ns.FishingData().spots) do
+        for place, spot in pairs(places) do
+            FishPins(pins, zone, place, spot, ns.FishSpotName(zone, place))
+        end
+    end
+    return "Fishing spots", "fishing", pins
+end
+local FISH_LAYER = { kind = "fishing", id = "all" }
 
 ------------------------------------------------------------------------------
 -- Placing a pin on the map being viewed
@@ -493,7 +544,10 @@ function provider:RefreshAllData()
     local map = self:GetMap()
     local mapID = map:GetMapID()
     if not mapID then return end
-    for _, layer in ipairs(ns.db.mapLayers) do
+    local layers = {}
+    for i, layer in ipairs(ns.db.mapLayers) do layers[i] = layer end
+    if ns.db.settings.fishPins then layers[#layers + 1] = FISH_LAYER end
+    for _, layer in ipairs(layers) do
         local build = builders[layer.kind]
         local ok, title, page, pins, sel = false, nil, nil, nil, nil
         if build then ok, title, page, pins, sel = pcall(build, layer.id) end
@@ -529,9 +583,10 @@ function provider:RefreshAllData()
                     end
                 end
             end
+            -- A pin may carry its own note and its own entry to open (a fishing spot).
             for _, o in ipairs(others) do
-                map:AcquirePin(TEMPLATE, { kind = o[1][4], label = o[1][5], title = title, page = page,
-                    layer = layer, sel = sel }, o[2], o[3])
+                map:AcquirePin(TEMPLATE, { kind = o[1][4], label = o[1][5], note = o[1].note, title = title,
+                    page = page, layer = layer, sel = o[1].sel or sel }, o[2], o[3])
             end
         end
     end
@@ -540,6 +595,7 @@ end
 local function Refresh()
     if MapPins.ready and WorldMapFrame:IsShown() then provider:RefreshAllData() end
 end
+MapPins.Refresh = Refresh
 
 ------------------------------------------------------------------------------
 -- Pinning and unpinning
@@ -595,6 +651,13 @@ function MapPins.Show(kind, id, mapID)
 end
 
 function MapPins.Remove(kind, id)
+    -- Your fishing spots come from a setting, so removing them switches it off.
+    if kind == FISH_LAYER.kind then
+        ns.db.settings.fishPins = false
+        ns.Print("Took your fishing spots off your map (Settings can show them again).")
+        Refresh()
+        return
+    end
     local i = Find(kind, id)
     if not i then return end
     local ok, title = false, nil
@@ -606,6 +669,7 @@ end
 
 function MapPins.Clear()
     wipe(ns.db.mapLayers)
+    ns.db.settings.fishPins = false
     ns.Print("Took all of the book's pins off your map.")
     Refresh()
 end

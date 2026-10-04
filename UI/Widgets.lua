@@ -616,6 +616,8 @@ UI.PIN = {
     npc = { 0.15, 0.62, 0.62 },
     start = { 0.30, 0.70, 0.20 },
     finish = { 0.95, 0.75, 0.20 },
+    fish = { 0.16, 0.40, 0.78 }, -- where you fished in open water
+    pool = { 0.45, 0.85, 0.95 }, -- where you fished mostly from pools
 }
 -- Kinds drawn as the game's own map icons (the quest giver's "!" and hand-in "?"), larger
 -- than a dot; the colour above stands in if this client lacks the atlas.

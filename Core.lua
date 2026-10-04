@@ -10,6 +10,9 @@ ns.defaults = {
         photoClean = true,  -- "Take a picture" hides the interface for the shot (out of combat)
         photosShow = false, -- show the screenshots themselves (after "Set up pictures.bat")
         photoView = "list", -- the Pictures page: "list" (cards one under another) or "grid"
+        fishing = true,     -- keep the fishing journal (what you catch, where, your skill)
+        fishPins = false,   -- show the spots you've fished from on the world map
+        gossip = true,      -- write down what people say to you and the replies you choose
     },
     mobs = {},    -- [npcID] = bestiary entry; "n:Name" keys hold kills not yet matched to an ID
     quests = {},  -- [questID] = { title, accepted, completed, ... }
@@ -21,6 +24,7 @@ ns.defaults = {
     npcs = {},    -- [npcID] = friendly NPC: title, location, roles, quests, what they sell
     mapLayers = {}, -- entries pinned to the world map: { kind = "quest"|"mob"|"npc"|"zone", id }
     photoRemoved = {}, -- [screenshot file] = true for pictures taken out, so they're never re-added
+    fishing = { items = {}, spots = {}, milestones = {} }, -- the fishing journal (Fishing.lua)
 }
 
 -- Midnight hides some values from addons ("secret values"); they can't be compared or stored.

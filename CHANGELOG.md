@@ -1,5 +1,28 @@
 # Captain's Log
 
+## 0.6.0
+
+### Fishing
+- A new **Fishing** page in the book. Everything you fish up is written down: each kind of catch with its icon, how many you've caught, and when and where you first landed it. Search by name.
+- Pick a catch to see every spot it has come from, how much of your catch there it makes up, and how many came from pools or open water, with links to the land's page in Lands and a map of where you caught it.
+- **Spots**: every place you've fished, land by land. Each shows what it gives and how often, how many casts went into pools, and a map of where you cast from (with a Map button and a waypoint).
+- Your fishing skill along the foot of the page. Click it for your milestones: each 25 points you gain is written down with the date, the place and the catch that did it.
+- The daily log writes one line per spell of fishing ("Caught 12 fish at Auberdine, Darkshore (9 Raw Brilliant Smallfish...), among them your first Firefin Snapper") and notes each fishing skill milestone. The day's summary and each land's page count the fish too.
+- Settings: switch the fishing journal off, or show all your fishing spots on the world map (off by default; right-click one there to hide them again).
+
+### Conversations
+- The book now writes down what people say to you. Each person's page has a **What they say** section: their greeting, and every reply their window offered, with its icon.
+- Replies you chose are ticked, with how many times you picked them. Ones that only turn up now and then say how often they were offered, and ones that open a shop, training, the flight map or your bank say so.
+- Follow a reply to another page of conversation and that page is written in under it, indented, so the whole conversation builds up as you explore it. Replies that lead back (to the greeting, say) point to where they return.
+- When someone's words change (after a quest, say), the newest are shown with the date, and their earlier words are a click away.
+- Quests on offer in the conversation are listed, linking to the quest journal for ones you've taken.
+- The People search now looks through what people said and the replies they offered too: search "Wailing Caverns" to find who mentioned it.
+- Settings: switch it off if you'd rather not keep conversations.
+
+- Anyone you talk to, trade with or fly with now goes in People, even NPCs you could attack, such as the neutral goblins of Ratchet and Booty Bay. They were left out before.
+### Under the hood
+- Shares its options page with the other Frog Wizard add-ons (one copy of the code, so a fix reaches them all at once). Nothing changes in how it looks or works.
+
 ## 0.5.2
 
 ### Options

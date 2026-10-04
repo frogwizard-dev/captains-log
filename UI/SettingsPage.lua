@@ -41,15 +41,25 @@ function Page:Build(left, right)
     place(setup, 40, 4)
     setup:SetScript("OnClick", function() ns.ShowPictureSetup() end)
 
+    place(UI.Checkbox(left, "Write down what people say, and the replies I pick",
+        function() return s.gossip end, function(v) s.gossip = v end), 28)
+    place(UI.Checkbox(left, "Keep a fishing journal (what you catch, and where)",
+        function() return s.fishing end, function(v) s.fishing = v end), 28)
+    place(UI.Checkbox(left, "Show my fishing spots on the world map",
+        function() return s.fishPins end, function(v)
+            s.fishPins = v
+            ns.MapPins.Refresh()
+        end), 30)
+
     local label = UI.Text(left, 12)
     label:SetText("Treasures kept in the daily log:")
     place(label, 22, 4)
     place(UI.Dropdown(left, 220, QUALITIES, function() return s.lootQuality end,
-        function(v) s.lootQuality = v end), 44, 4)
+        function(v) s.lootQuality = v end), 40, 4)
 
     -- Everything the Map buttons put on the game's world map, gone in one click.
     local unpin = UI.Button(left, "Remove the book's map pins", 220)
-    place(unpin, 34, 4)
+    place(unpin, 32, 4)
     unpin:SetScript("OnClick", function() ns.MapPins.Clear() end)
 
     -- Two clicks to wipe, so a stray click can't erase the journal.
@@ -196,6 +206,8 @@ function Page:Render()
     doc:Line("Bestiary entries: " .. mobs)
     doc:Line("Quests completed: " .. quests)
     doc:Line("Lands visited: " .. zones)
+    local fishing = ns.FishingData()
+    if (fishing.n or 0) > 0 then doc:Line("Fish caught: " .. ns.Number(fishing.n)) end
     doc:Line("Deaths: " .. #db.deaths)
     doc:Gap(12)
     doc:Faded("Counting only starts once the addon is installed; earlier adventures aren't known to it.")
@@ -203,8 +215,8 @@ function Page:Render()
     doc:Finish()
 end
 
--- Its entry in the game's Options > AddOns list (Options.lua): opens the book at Settings.
-ns.AddOptionsPanel({
+-- Its entry in the game's Options > AddOns list (FrogLib's Options): opens the book at Settings.
+FrogLib.Options.Add("CaptainsLog", ns, {
     button = "Open Captain's Log",
     open = function()
         ns.Book.back = nil

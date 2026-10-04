@@ -48,6 +48,22 @@ end, function()
     return "Dungeons", "Click to open its page in Dungeons: every run, your record against each boss, and the loot."
 end)
 
+UI.RegisterLink("fish", function(id)
+    ns.Book:Goto("fishing", tonumber(id), true)
+end, function(id)
+    local e = ns.FishingData().items[tonumber(id)]
+    return e and e.name or ("Item #" .. id), "Click to open in Fishing."
+end)
+
+UI.RegisterLink("fishspot", function(zone, place)
+    local key = ns.FishSpotKey(zone, place)
+    if ns.FishSpot(key) then ns.Book:Goto("fishing", key, true) end
+end, function(zone, place)
+    if ns.FishSpot(ns.FishSpotKey(zone, place)) then
+        return ns.FishSpotName(zone, place), "Click to open this fishing spot in Fishing."
+    end
+end)
+
 UI.RegisterLink("back", function()
     ns.Book:GoBack()
 end, function()
@@ -83,6 +99,19 @@ function UI.ZoneLink(name)
     if not name then return "" end
     if not ns.db.zones[name] or name:find("[:|]") then return name end
     return UI.Link(name, "zone", name)
+end
+
+-- A catch, opening its page in Fishing.
+function UI.FishLink(id, text)
+    local e = ns.FishingData().items[id]
+    return UI.Link(text or (e and e.name) or ("Item #" .. id), "fish", id)
+end
+
+-- A fishing spot (a place in a land), as a link to its page in Fishing where its names allow.
+function UI.FishSpotLink(zone, place, text)
+    text = text or place
+    if (zone .. place):find("[:|]") then return text end
+    return UI.Link(text, "fishspot", zone, place)
 end
 
 function UI.WaypointLink(mapID, x, y, text)

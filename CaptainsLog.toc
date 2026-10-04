@@ -1,20 +1,22 @@
 ## Interface: 16001, 120000, 120001, 120005, 120007, 120100
 ## Title: Captain's Log
 ## Category: Frog Wizard
-## Notes: A personal journal that writes itself: a bestiary, a daily log, quests, people, lands and dungeons, all linked together and pinned to your world map.
-## Version: 0.5.2
+## Notes: A personal journal that writes itself: a bestiary, a daily log, quests, people, lands, dungeons and fishing, all linked together and pinned to your world map.
+## Version: 0.6.0
 ## X-Curse-Project-ID: 1719659
 ## SavedVariablesPerCharacter: CaptainsLogDB
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
 ## AddonCompartmentFunc: CaptainsLog_OnCompartmentClick
 
-Options.lua
+Libs\FrogLib\FrogLib.xml
 Core.lua
 Tracker.lua
 Quests.lua
 Combat.lua
 Dungeons.lua
 NPCs.lua
+Gossip.lua
+Fishing.lua
 Photos.lua
 Shots.lua
 Tooltip.lua
@@ -29,4 +31,5 @@ UI\PeoplePage.lua
 UI\QuestsPage.lua
 UI\ZonesPage.lua
 UI\DungeonsPage.lua
+UI\FishingPage.lua
 UI\SettingsPage.lua
