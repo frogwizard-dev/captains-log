@@ -9,9 +9,9 @@ local ROLE_SHORT = { TANK = "Tank", HEALER = "Healer", DAMAGER = "DPS" }
 
 -- Class colours darkened so light ones (priest white, rogue yellow) stay readable on parchment.
 local function ClassInk(class)
-    local c = class and RAID_CLASS_COLORS[class]
-    if not c then return "|cff2e1d0c" end
-    return string.format("|cff%02x%02x%02x", c.r * 150, c.g * 150, c.b * 150)
+    local r, g, b = FrogLib.Color.Class(class)
+    if not r then return "|cff2e1d0c" end
+    return string.format("|cff%02x%02x%02x", r * 150, g * 150, b * 150)
 end
 
 local function BossText(run)
@@ -43,7 +43,17 @@ end
 
 local function MobName(id)
     local m = ns.db.mobs[id]
-    return (m and m.name) or ns.CreatureName(id) or ("Unknown creature #" .. tostring(id))
+    if m and m.name then return m.name end
+    -- Counted by name alone (the game hid its ID): the key is "n:Name".
+    local named = type(id) == "string" and id:match("^n:(.+)$")
+    if named then return named end
+    return (type(id) == "number" and ns.CreatureName(id)) or ("Unknown creature #" .. tostring(id))
+end
+
+-- A creature as a link to its bestiary entry, or its plain name if it has none yet.
+local function Slain(id)
+    if type(id) == "number" then return UI.MobLink(id, MobName(id)) end
+    return MobName(id)
 end
 
 function Page:Build(left, right)
@@ -196,7 +206,7 @@ function Page:RenderRun(i)
         table.sort(mobs, function(a, b) return a.n > b.n end)
         doc:Heading("Creatures slain inside")
         for k = 1, math.min(#mobs, 12) do
-            doc:Line(string.format("%s  x%d", UI.MobLink(mobs[k].id, MobName(mobs[k].id)), mobs[k].n))
+            doc:Line(string.format("%s  x%d", Slain(mobs[k].id), mobs[k].n))
         end
     end
 
@@ -402,7 +412,7 @@ function Page:RenderInstance(inst)
     local slain = TopCounts(mobs, 12)
     if #slain > 0 then
         doc:Heading("Creatures slain inside")
-        for _, e in ipairs(slain) do doc:Line(string.format("%s  x%d", UI.MobLink(e.k, MobName(e.k)), e.n)) end
+        for _, e in ipairs(slain) do doc:Line(string.format("%s  x%d", Slain(e.k), e.n)) end
     end
 
     if #lootOrder > 0 then

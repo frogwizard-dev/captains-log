@@ -29,7 +29,7 @@ end
 local function JournalID()
     if not EJ_GetInstanceForMap then return nil end
     local ok, mapID = pcall(C_Map.GetBestMapForUnit, "player")
-    if not ok or not mapID or issecret(mapID) then return nil end
+    if not ok or issecret(mapID) or not mapID then return nil end
     local ok2, journalID = pcall(EJ_GetInstanceForMap, mapID)
     if not ok2 or not journalID or journalID == 0 then return nil end
     return journalID
@@ -55,17 +55,18 @@ end
 
 local function Role(unit)
     local role = UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit)
-    if role and not issecret(role) and role ~= "NONE" then return role end
+    if not issecret(role) and role and role ~= "NONE" then return role end
 end
 
 local function AddGroup(run)
     local prefix = IsInRaid() and "raid" or "party"
     for i = 1, GetNumGroupMembers() do
         local unit = prefix .. i
-        if UnitExists(unit) and not UnitIsUnit(unit, "player") then
+        if UnitExists(unit) and not FrogLib.Safe(UnitIsUnit(unit, "player")) then
             local name = GetUnitName(unit, true)
             local _, class = UnitClass(unit)
-            if name and not issecret(name) then
+            class = FrogLib.Safe(class) -- saved: never a value the game hides
+            if not issecret(name) and name then
                 local known
                 for _, member in ipairs(run.group) do
                     if member.name == name then known = member break end
@@ -95,7 +96,7 @@ local function OnZone()
     end
 
     local name, itype, _, difficulty, maxPlayers, _, _, instanceID = GetInstanceInfo()
-    if INSTANCE_TYPES[itype] and name and not issecret(name) then
+    if INSTANCE_TYPES[itype] and not issecret(name) and name then
         if run and run.instanceID == instanceID then
             if run.leftAt then
                 run.leftAt = nil

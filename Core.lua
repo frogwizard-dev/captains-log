@@ -28,7 +28,7 @@ ns.defaults = {
 }
 
 -- Midnight hides some values from addons ("secret values"); they can't be compared or stored.
-ns.issecret = issecretvalue or function() return false end
+ns.issecret = FrogLib.issecret
 
 function ns.Print(...)
     print("|cffd8b56aCaptain's Log|r:", ...)
@@ -116,7 +116,7 @@ end
 -- every spot recorded in one zone shares one map. Nil where the map is hidden.
 function ns.ZoneMap()
     local ok, mapID = pcall(C_Map.GetBestMapForUnit, "player")
-    if not ok or not mapID or ns.issecret(mapID) then return nil end
+    if not ok or ns.issecret(mapID) or not mapID then return nil end
     for _ = 1, 5 do
         local info = C_Map.GetMapInfo(mapID)
         -- 5 = micro (a cave, a building), 6 = orphan
@@ -151,21 +151,21 @@ function ns.Position(best)
     local mapID
     if best then
         local ok, id = pcall(C_Map.GetBestMapForUnit, "player")
-        mapID = ok and id or nil
+        mapID = ok and FrogLib.Safe(id) or nil
     else
         mapID = ns.ZoneMap()
     end
-    if not mapID or ns.issecret(mapID) then return end
+    if ns.issecret(mapID) or not mapID then return end
     local ok, pos = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
     if not ok or not pos then return end
     local x, y = pos:GetXY()
-    if not x or ns.issecret(x) or ns.issecret(y) then return end
+    if ns.issecret(x) or ns.issecret(y) or not x then return end
     return mapID, math.floor(x * 1000 + 0.5) / 1000, math.floor(y * 1000 + 0.5) / 1000
 end
 
 -- "Creature-0-1234-0-12-448-000012AB34" -> 448. Nil for players, pets, objects and secrets.
 function ns.NpcID(guid)
-    if not guid or ns.issecret(guid) then return nil end
+    if ns.issecret(guid) or not guid then return nil end
     local kind, _, _, _, _, id = strsplit("-", guid)
     if kind == "Creature" or kind == "Vehicle" then
         return tonumber(id)

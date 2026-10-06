@@ -25,10 +25,7 @@ local FOLLOW = 5      -- seconds after a choice in which a new page counts as it
 local OPENS = 3       -- seconds after a choice in which a shop or trainer opening is its doing
 local VISIT = 60      -- the same page shown again this soon isn't counted again
 
-local function Clean(v)
-    if v == nil or issecret(v) then return nil end
-    return v
-end
+local Clean = FrogLib.Safe -- nil for a value the game hides
 
 -- What the gossip window shows right now: its words, its replies in the window's order, and the
 -- quests listed on it. Anything hidden from addons is left out.

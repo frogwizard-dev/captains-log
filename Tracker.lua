@@ -118,11 +118,11 @@ end
 local MAX_SPOTS = 60
 local function RecordSpot(m)
     local ok, mapID = pcall(C_Map.GetBestMapForUnit, "player")
-    if not ok or not mapID or issecret(mapID) then return end
+    if not ok or issecret(mapID) or not mapID then return end
     local ok2, pos = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
     if not ok2 or not pos then return end
     local x, y = pos:GetXY()
-    if not x or issecret(x) or issecret(y) then return end
+    if issecret(x) or issecret(y) or not x then return end
     m.spots = m.spots or {}
     local list = m.spots[mapID] or {}
     m.spots[mapID] = list
@@ -159,7 +159,7 @@ function ns.CreatureName(id)
         local data = C_TooltipInfo.GetHyperlink(("unit:Creature-0-0-0-0-%d-0000000000"):format(id))
         return data and data.lines and data.lines[1] and data.lines[1].leftText
     end)
-    if not ok or not name or issecret(name) or name == "" then return end
+    if not ok or issecret(name) or not name or name == "" then return end
     return name
 end
 
@@ -185,10 +185,22 @@ local function Mob(id, name)
 end
 ns.Mob = Mob
 
--- A kill counted from its XP message before the mob's ID was known lives under "n:Name";
--- fold it into the real entry once we learn the ID.
+-- A kill counted from its XP message before the mob's ID was known (in dungeons the game hides
+-- creatures' IDs) lives under "n:Name", in the bestiary and in the dungeon run's tally; fold it
+-- into the real entry once we learn the ID.
+local function MergeRuns(key, id)
+    for _, run in ipairs(ns.db.runs or {}) do
+        local n = run.mobs and run.mobs[key]
+        if n then
+            run.mobs[id] = (run.mobs[id] or 0) + n
+            run.mobs[key] = nil
+        end
+    end
+end
+
 local function MergeNamed(name, id)
     local key = "n:" .. name
+    MergeRuns(key, id)
     local old = ns.db.mobs[key]
     if not old then return end
     local m = Mob(id, name)
@@ -264,7 +276,9 @@ end
 
 -- Creates or updates the bestiary entry for an attackable NPC. Returns guid, id, name.
 local function Discover(unit)
-    if not UnitExists(unit) or UnitIsPlayer(unit) or ns.IsControlled(unit) then return end
+    if not UnitExists(unit) then return end
+    local player = UnitIsPlayer(unit) -- hidden in some content: then left alone
+    if issecret(player) or player or ns.IsControlled(unit) then return end
     local guid = UnitGUID(unit)
     local id = ns.NpcID(guid)
     if not id then return end
@@ -285,9 +299,9 @@ local function Discover(unit)
         m.maxLevel = math.max(m.maxLevel or level, level)
     end
     local cls = UnitClassification(unit)
-    if cls and not issecret(cls) then m.classification = cls end
+    if not issecret(cls) and cls then m.classification = cls end
     local ctype = UnitCreatureType(unit)
-    if ctype and not issecret(ctype) then m.creatureType = ctype end
+    if not issecret(ctype) and ctype then m.creatureType = ctype end
     return guid, id, name
 end
 
@@ -335,7 +349,7 @@ local function Watch(unit)
         -- another player's pet is in combat, but not with you. Group kills you didn't touch
         -- still count through their XP message.
         local threat = UnitThreatSituation("player", unit)
-        if threat ~= nil and not issecret(threat) then seenAlive[guid] = true end
+        if not issecret(threat) and threat ~= nil then seenAlive[guid] = true end
     elseif seenAlive[guid] then
         seenAlive[guid] = nil
         DeathSignal(guid, id, name)
@@ -371,7 +385,7 @@ end
 local XP_PATTERN = COMBATLOG_XPGAIN_FIRSTPERSON and FormatToPattern(COMBATLOG_XPGAIN_FIRSTPERSON)
 
 ns.On("CHAT_MSG_COMBAT_XP_GAIN", function(msg)
-    if not XP_PATTERN or not msg or issecret(msg) then return end
+    if not XP_PATTERN or issecret(msg) or not msg then return end
     local name = msg:match(XP_PATTERN)
     if not name or name == "" then return end
     local now = GetTime()
@@ -468,7 +482,7 @@ for _, fmt in ipairs({ LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE, LOOT_ITEM_PUSHED
 end
 
 ns.On("CHAT_MSG_LOOT", function(msg)
-    if not msg or issecret(msg) then return end
+    if issecret(msg) or not msg then return end
     for _, pattern in ipairs(LOOT_PATTERNS) do
         local link = msg:match(pattern)
         if link then
@@ -542,7 +556,7 @@ local function OnZone()
     z.continent = (z.mapID and ns.Continent(z.mapID)) or z.continent
     -- Dungeons, raids and the like are written down as lands too; the Lands page lists them apart.
     local _, itype = GetInstanceInfo()
-    if itype and not issecret(itype) and itype ~= "none" then z.instance = itype end
+    if not issecret(itype) and itype and itype ~= "none" then z.instance = itype end
     z.maxLevel = math.max(z.maxLevel or 0, UnitLevel("player"))
     -- Remembered per day so a /reload doesn't write "Travelled to" again (or count a visit).
     local day = ns.Day()
@@ -575,6 +589,19 @@ ns.On("PLAYER_LOGIN", function()
     for id, m in pairs(ns.db.mobs) do
         if type(id) == "number" and m.name then nameToID[m.name] = id end
     end
+    -- Tallies still under "n:Name" (from before runs were merged too) join the creature's entry.
+    local named = {}
+    for _, run in ipairs(ns.db.runs or {}) do
+        for key in pairs(run.mobs or {}) do
+            local name = type(key) == "string" and key:match("^n:(.+)$")
+            if name and nameToID[name] then named[name] = true end
+        end
+    end
+    for key in pairs(ns.db.mobs) do
+        local name = type(key) == "string" and key:match("^n:(.+)$")
+        if name and nameToID[name] then named[name] = true end
+    end
+    for name in pairs(named) do MergeNamed(name, nameToID[name]) end
     C_Timer.NewTicker(30, Tick)
 end)
 
@@ -596,7 +623,7 @@ local function LikelyKiller()
     for _, unit in ipairs(units) do
         if UnitExists(unit) then
             local threat = UnitThreatSituation("player", unit)
-            if threat ~= nil and not issecret(threat) then
+            if not issecret(threat) and threat ~= nil then
                 local guid, id, name = Discover(unit)
                 if id then return id, name end
             end

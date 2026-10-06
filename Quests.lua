@@ -94,7 +94,7 @@ local RewardList -- below
 
 ns.On("QUEST_DETAIL", function()
     local id = GetQuestID and GetQuestID()
-    if not id or issecret(id) or id == 0 then return end
+    if issecret(id) or not id or id == 0 then return end
     local o = {
         text = Clean(GetQuestText and GetQuestText()),
         objective = Clean(GetObjectiveText and GetObjectiveText()),
@@ -133,8 +133,8 @@ ns.On("QUEST_ACCEPTED", function(a, b)
         q.text = o.text or q.text
         q.objective = o.objective or q.objective
         q.items, q.choices, q.chose = o.items, o.choices, nil
-        q.offerMoney = (o.money and not issecret(o.money) and o.money > 0) and o.money or nil
-        q.offerXP = (o.xp and not issecret(o.xp) and o.xp > 0) and o.xp or nil
+        q.offerMoney = (not issecret(o.money) and o.money and o.money > 0) and o.money or nil
+        q.offerXP = (not issecret(o.xp) and o.xp and o.xp > 0) and o.xp or nil
     end
     Describe(q, questID)
     q.objectives = Objectives(questID) or q.objectives

@@ -14,7 +14,7 @@ local function Title(unit)
     local ok, data = pcall(C_TooltipInfo.GetUnit, unit)
     local line = ok and data and data.lines and data.lines[2]
     local text = line and line.leftText
-    if text and not issecret(text) and text ~= "" and not text:find("%d") then return text end
+    if not issecret(text) and text and text ~= "" and not text:find("%d") then return text end
 end
 
 local function Position()
@@ -35,7 +35,9 @@ end
 -- Records a friendly NPC, or any you talk to. `talking` = you're interacting with it now (gossip,
 -- quests, a shop...); `talked` = and it's a new visit (a precise location, a visit counted).
 local function Meet(unit, talked, talking)
-    if not UnitExists(unit) or UnitIsPlayer(unit) or ns.IsControlled(unit) then return end
+    if not UnitExists(unit) then return end
+    local player = UnitIsPlayer(unit) -- hidden in some content: then left alone
+    if issecret(player) or player or ns.IsControlled(unit) then return end
     local id = ns.NpcID(UnitGUID(unit))
     if not id then return end
     -- Enemies belong to the bestiary. But anyone you talk to (gossip, quests, a shop, a flight
@@ -195,7 +197,7 @@ local function ReadServices()
         local name, kind, icon, reqLevel = GetTrainerServiceInfo(i)
         if kind == "header" then
             group = name
-        elseif name and not issecret(name) then
+        elseif not issecret(name) and name then
             local cost = GetTrainerServiceCost and GetTrainerServiceCost(i)
             local skill, rank = nil, nil
             if GetTrainerServiceSkillReq then

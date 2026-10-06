@@ -86,10 +86,7 @@ end
 -- Skill
 ------------------------------------------------------------------------------
 
-local function Clean(v)
-    if v == nil or issecret(v) then return nil end
-    return v
-end
+local Clean = FrogLib.Safe -- nil for a value the game hides
 
 -- Your Fishing skill: rank, the most your training allows, and any bonus (a lure, a pole).
 -- Nil if you haven't learned it or the client won't say.
@@ -304,7 +301,7 @@ end
 local function FromPool(slot)
     if not GetLootSourceInfo then return nil end
     local guid = GetLootSourceInfo(slot)
-    if not guid or issecret(guid) then return nil end
+    if issecret(guid) or not guid then return nil end
     local kind, _, _, _, _, id = strsplit("-", guid)
     id = tonumber(id)
     if kind ~= "GameObject" or not id then return nil end

@@ -58,7 +58,7 @@ local function Group()
     local prefix = IsInRaid() and "raid" or "party"
     for i = 1, math.min(GetNumGroupMembers(), 8) do
         local unit = prefix .. i
-        if UnitExists(unit) and not UnitIsUnit(unit, "player") then
+        if UnitExists(unit) and not FrogLib.Safe(UnitIsUnit(unit, "player")) then
             local name = Clean(UnitName(unit))
             if name then names[#names + 1] = name end
         end
@@ -76,7 +76,7 @@ end
 local function Record()
     local t = time()
     local mapID, x, y = ns.Position()
-    local target = UnitExists("target") and not UnitIsUnit("target", "player") and Clean(UnitName("target")) or nil
+    local target = UnitExists("target") and not FrogLib.Safe(UnitIsUnit("target", "player")) and Clean(UnitName("target")) or nil
     local photo = {
         t = t, file = FileName(t),
         zone = ns.Zone(), place = Clean(GetSubZoneText and GetSubZoneText()),

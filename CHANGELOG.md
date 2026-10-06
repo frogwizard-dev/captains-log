@@ -1,5 +1,15 @@
 # Captain's Log
 
+## 0.6.1
+
+### Fixes
+- A dungeon run's "Creatures slain inside" no longer lists creatures as "Unknown creature #n:..." or twice. Inside dungeons the game hides which creature was killed, so some kills are counted by name; those now join the creature's own entry once the log knows it (runs already saved are fixed at login), and show their proper name until then.
+- Writing down people, creatures, quests, places and dungeon groups no longer stops with an error where the game hides a name, a level, a map position, a quest's rewards or whether a unit is a player (some instances): the hidden detail is just left out.
+- A dungeon group member whose class the game hides is saved without it, instead of breaking the run's record.
+
+### Under the hood
+- Class colours on the Dungeons page come from FrogLib, shared with the other Frog Wizard add-ons (a class colour add-on's colours are used if you have one).
+
 ## 0.6.0
 
 ### Fishing

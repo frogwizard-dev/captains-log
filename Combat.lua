@@ -18,10 +18,7 @@ local SCHOOLS = {
     { 16, "Frost" }, { 32, "Shadow" }, { 64, "Arcane" },
 }
 
-local function Safe(v)
-    if issecret(v) then return nil end
-    return v
-end
+local Safe = FrogLib.Safe
 
 function ns.SchoolName(mask)
     local names = {}
