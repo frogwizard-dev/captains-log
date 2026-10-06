@@ -62,7 +62,7 @@ local function AddGroup(run)
     local prefix = IsInRaid() and "raid" or "party"
     for i = 1, GetNumGroupMembers() do
         local unit = prefix .. i
-        if UnitExists(unit) and not FrogLib.Safe(UnitIsUnit(unit, "player")) then
+        if UnitExists(unit) and not FrogLib.Unit.IsPlayer(unit) then
             local name = GetUnitName(unit, true)
             local _, class = UnitClass(unit)
             class = FrogLib.Safe(class) -- saved: never a value the game hides
@@ -96,7 +96,7 @@ local function OnZone()
     end
 
     local name, itype, _, difficulty, maxPlayers, _, _, instanceID = GetInstanceInfo()
-    if INSTANCE_TYPES[itype] and not issecret(name) and name then
+    if not issecret(itype) and INSTANCE_TYPES[itype] and not issecret(name) and name then
         if run and run.instanceID == instanceID then
             if run.leftAt then
                 run.leftAt = nil

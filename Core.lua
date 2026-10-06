@@ -30,9 +30,7 @@ ns.defaults = {
 -- Midnight hides some values from addons ("secret values"); they can't be compared or stored.
 ns.issecret = FrogLib.issecret
 
-function ns.Print(...)
-    print("|cffd8b56aCaptain's Log|r:", ...)
-end
+ns.Print = FrogLib.Util.Printer("Captain's Log", "d8b56a")
 
 function ns.Debug(msg)
     if ns.db and ns.db.settings.debug then
@@ -40,16 +38,7 @@ function ns.Debug(msg)
     end
 end
 
-local function CopyDefaults(src, dst)
-    for k, v in pairs(src) do
-        if type(v) == "table" then
-            if type(dst[k]) ~= "table" then dst[k] = {} end
-            CopyDefaults(v, dst[k])
-        elseif dst[k] == nil then
-            dst[k] = v
-        end
-    end
-end
+local CopyDefaults = FrogLib.Util.CopyDefaults
 
 -- Event bus: modules subscribe with ns.On; handlers only run once saved data is loaded.
 local frame = CreateFrame("Frame")
@@ -108,7 +97,7 @@ end
 
 function ns.Zone()
     local zone = GetRealZoneText()
-    if not zone or zone == "" or ns.issecret(zone) then return nil end
+    if ns.issecret(zone) or not zone or zone == "" then return nil end
     return zone
 end
 

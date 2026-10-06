@@ -1,5 +1,9 @@
 # Captain's Log
 
+## 0.6.2
+
+- In a raid where the game hides who's who, you're no longer saved as a member of your own dungeon run or as your own photo's target.
+
 ## 0.6.1
 
 ### Fixes

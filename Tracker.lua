@@ -529,7 +529,7 @@ end
 local function OnSubZone()
     local zone = ns.Zone()
     local place = GetSubZoneText and GetSubZoneText()
-    if not zone or not place or place == "" or issecret(place) or place == zone then return end
+    if issecret(place) or not zone or not place or place == "" or place == zone then return end
     local z = ZoneRecord(zone)
     z.places = z.places or {}
     if z.places[place] then return end
