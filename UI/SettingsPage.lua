@@ -96,11 +96,31 @@ end
 ------------------------------------------------------------------------------
 
 local FOLDER = "Interface\\AddOns\\CaptainsLog"
+-- The set-up file's page on GitHub (CurseForge won't take a .bat inside an add-on).
+local DOWNLOAD = "https://github.com/frogwizard-dev/captains-log/blob/main/Set%20up%20pictures.bat"
 local setupWindow
+
+-- Text in a box, selectable for Ctrl+C; typing doesn't change it.
+local function CopyBox(page, text, width)
+    local box = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
+    box:SetSize(width, 22)
+    box:SetAutoFocus(false)
+    box:SetText(text)
+    box:SetCursorPosition(0)
+    box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+    box:SetScript("OnTextChanged", function(self, user)
+        if user then
+            self:SetText(text)
+            self:HighlightText()
+        end
+    end)
+    box:SetScript("OnEscapePressed", box.ClearFocus)
+    return box
+end
 
 local function BuildSetup()
     local f = CreateFrame("Frame", "CaptainsLogPictureSetup", UIParent, "BackdropTemplate")
-    f:SetSize(460, 330)
+    f:SetSize(480, 400)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetMovable(true)
@@ -130,38 +150,39 @@ local function BuildSetup()
 
     local body = UI.Text(page, 12)
     body:SetPoint("TOPLEFT", f.status, "BOTTOMLEFT", 0, -10)
-    body:SetWidth(400)
+    body:SetWidth(420)
     body:SetSpacing(3)
     body:SetText("The book can show your screenshots, but the game only reads files inside its own "
         .. "folders, and addons can't run anything on your PC. So there's one step outside the game, once:\n\n"
-        .. "1.  Minimise the game and open your game folder (the one the game runs from).\n"
-        .. "2.  Go into the folder below and double-click |cff7a1f0dSet up pictures.bat|r.\n"
-        .. "3.  Come back and press |cff7a1f0dIt's set up|r. (Type /reload to bring in older screenshots.)")
+        .. "1.  Download |cff7a1f0dSet up pictures.bat|r: copy this link into your browser and press "
+        .. "the download button at the top right of the file.")
 
-    -- The folder, selectable for Ctrl+C; typing doesn't change it.
-    local box = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
-    box:SetSize(300, 22)
-    box:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 6, -12)
-    box:SetAutoFocus(false)
-    box:SetText(FOLDER)
-    box:SetCursorPosition(0)
-    box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
-    box:SetScript("OnTextChanged", function(self, user)
-        if user then
-            self:SetText(FOLDER)
-            self:HighlightText()
-        end
-    end)
-    box:SetScript("OnEscapePressed", box.ClearFocus)
+    local link = CopyBox(page, DOWNLOAD, 330)
+    link:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 6, -8)
     local hint = UI.Text(page, 11, UI.FADED)
-    hint:SetPoint("LEFT", box, "RIGHT", 8, 0)
+    hint:SetPoint("LEFT", link, "RIGHT", 8, 0)
     hint:SetText("Ctrl+C to copy")
 
+    local steps = UI.Text(page, 12)
+    steps:SetPoint("TOPLEFT", link, "BOTTOMLEFT", -6, -10)
+    steps:SetWidth(420)
+    steps:SetSpacing(3)
+    steps:SetText("2.  Put it in this folder, inside your game folder, and double-click it there (it finds "
+        .. "the game from where it sits):")
+
+    local box = CopyBox(page, FOLDER, 300)
+    box:SetPoint("TOPLEFT", steps, "BOTTOMLEFT", 6, -8)
+
+    local last = UI.Text(page, 12)
+    last:SetPoint("TOPLEFT", box, "BOTTOMLEFT", -6, -10)
+    last:SetWidth(420)
+    last:SetText("3.  Come back and press |cff7a1f0dIt's set up|r. (Type /reload to bring in older screenshots.)")
+
     local note = UI.Text(page, 11, UI.FADED)
-    note:SetPoint("TOPLEFT", box, "BOTTOMLEFT", -6, -10)
-    note:SetWidth(400)
+    note:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -10)
+    note:SetWidth(420)
     note:SetText("It links your Screenshots folder into the game's AddOns folder; nothing is copied or "
-        .. "moved. Windows only.")
+        .. "moved. Windows only. Windows may warn about a downloaded file: More info, then Run anyway.")
 
     local done = UI.Button(page, "It's set up", 140, 24)
     done:SetPoint("BOTTOMRIGHT", -16, 14)

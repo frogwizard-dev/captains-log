@@ -1,5 +1,9 @@
 # Captain's Log
 
+## 0.6.3
+
+- CurseForge doesn't allow a .bat file inside an add-on, so **Set up pictures.bat** is no longer in the download (which is why 0.5.1 to 0.6.2 never appeared there). Download it from the link in the book instead (Settings > Set up pictures..., or "How?" on a day's pictures), put it in the add-on's folder and double-click it as before. Everything from 0.5.1 to 0.6.2 comes with this version.
+
 ## 0.6.2
 
 - In a raid where the game hides who's who, you're no longer saved as a member of your own dungeon run or as your own photo's target.

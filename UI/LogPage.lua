@@ -536,8 +536,8 @@ function Page:PhotoSetup()
     })
     doc:Line("The book can show your screenshots, but the game only reads files inside its own "
         .. "folders. One step, once ever, links your Screenshots folder in:")
-    doc:Faded("1. Open the game's folder, then Interface\\AddOns\\CaptainsLog.")
-    doc:Faded("2. Double-click \"Set up pictures.bat\".")
+    doc:Faded("1. Press \"How?\" for the link to download \"Set up pictures.bat\".")
+    doc:Faded("2. Put it in the game's Interface\\AddOns\\CaptainsLog folder and double-click it.")
     doc:Faded("3. Press \"It's set up\". New pictures then show after a /reload.")
 end
 
@@ -593,7 +593,8 @@ function Page:RenderPhotos(key)
     if ns.db.settings.photosShow then
         doc:Gap(8)
         doc:Faded("Missing older screenshots? Double-click \"Set up pictures.bat\" in the add-on's folder "
-            .. "again, then /reload: it brings in any the book doesn't have.")
+            .. "again (Settings > Set up pictures... has the download), then /reload: it brings in any "
+            .. "the book doesn't have.")
     end
     doc:Finish()
 end

@@ -4,8 +4,10 @@ manual-changelog:
   filename: CHANGELOG.md
   markup-type: markdown
 
+# CurseForge refuses .bat files in an add-on, so the pictures set-up stays out of the package.
 ignore:
   - Images
+  - Set up pictures.bat
 
 externals:
   Libs/FrogLib:
