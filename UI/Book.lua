@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local UI = ns.UI
 
 local Book = {}
@@ -170,8 +171,8 @@ end
 function Book:BackLink(doc)
     local b = self.back
     if not b then return end
-    local label = b.label or (ns.Pages[b.key] and ns.Pages[b.key].label) or "previous page"
-    doc:Text(UI.Link("« Back to " .. label, "back"), 11)
+    local label = b.label or (ns.Pages[b.key] and ns.Pages[b.key].label) or L["previous page"]
+    doc:Text(UI.Link(L["« Back to %s"]:format(label), "back"), 11)
     doc:Gap(2)
 end
 

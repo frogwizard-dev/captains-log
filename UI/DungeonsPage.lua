@@ -1,11 +1,12 @@
 local _, ns = ...
+local L = ns.L
 local UI = ns.UI
 
-local Page = { label = "Dungeons", color = { 0.36, 0.18, 0.42 }, order = 5 }
+local Page = { label = L["Dungeons"], color = { 0.36, 0.18, 0.42 }, order = 5 }
 ns.Pages.dungeons = Page
 
-local ROLE = { TANK = "tank", HEALER = "healer", DAMAGER = "damage dealer" }
-local ROLE_SHORT = { TANK = "Tank", HEALER = "Healer", DAMAGER = "DPS" }
+local ROLE = { TANK = L["tank"], HEALER = L["healer"], DAMAGER = L["damage dealer"] }
+local ROLE_SHORT = { TANK = L["Tank"], HEALER = L["Healer"], DAMAGER = L["DPS"] }
 
 -- Class colours darkened so light ones (priest white, rogue yellow) stay readable on parchment.
 local function ClassInk(class)
@@ -15,8 +16,8 @@ local function ClassInk(class)
 end
 
 local function BossText(run)
-    if run.totalBosses then return string.format("%d/%d bosses", #run.bosses, run.totalBosses) end
-    return #run.bosses .. (#run.bosses == 1 and " boss" or " bosses")
+    if run.totalBosses then return string.format(L["%d/%d bosses"], #run.bosses, run.totalBosses) end
+    return (#run.bosses == 1 and L["%d boss"] or L["%d bosses"]):format(#run.bosses)
 end
 ns.RunBossText = BossText
 
@@ -47,7 +48,7 @@ local function MobName(id)
     -- Counted by name alone (the game hid its ID): the key is "n:Name".
     local named = type(id) == "string" and id:match("^n:(.+)$")
     if named then return named end
-    return (type(id) == "number" and ns.CreatureName(id)) or ("Unknown creature #" .. tostring(id))
+    return (type(id) == "number" and ns.CreatureName(id)) or L["Unknown creature #%s"]:format(tostring(id))
 end
 
 -- A creature as a link to its bestiary entry, or its plain name if it has none yet.
@@ -58,12 +59,12 @@ end
 
 function Page:Build(left, right)
     local W, H = ns.Book.CONTENT_W, ns.Book.CONTENT_H
-    self.sub = ns.Book:Header(left, "Dungeons & Raids")
+    self.sub = ns.Book:Header(left, L["Dungeons & Raids"])
     self.view = "runs"
 
     -- Every run, newest first, or one entry per dungeon with its records across runs.
     self.viewButtons = {}
-    for i, v in ipairs({ { "runs", "Every run" }, { "instances", "By dungeon" } }) do
+    for i, v in ipairs({ { "runs", L["Every run"] }, { "instances", L["By dungeon"] } }) do
         local b = UI.Button(left, v[2], 110)
         b:SetPoint("TOPLEFT", (i - 1) * 116, -62)
         b:SetScript("OnClick", function()
@@ -83,7 +84,7 @@ function Page:Render()
     local runs = ns.db.runs
     local bosses = 0
     for _, run in ipairs(runs) do bosses = bosses + #run.bosses end
-    self.sub:SetText(string.format("%d %s  ·  %d bosses defeated", #runs, #runs == 1 and "run" or "runs", bosses))
+    self.sub:SetText(string.format(#runs == 1 and L["%d run  ·  %d bosses defeated"] or L["%d runs  ·  %d bosses defeated"], #runs, bosses))
     for view, b in pairs(self.viewButtons) do
         if view == self.view then b:LockHighlight() else b:UnlockHighlight() end
     end
@@ -108,7 +109,7 @@ function Page:RenderRunList()
         items[#items + 1] = {
             key = i,
             left = run.name,
-            right = active and "in progress" or (date("%d %b", run.start) .. "  ·  " .. ns.Duration(ns.RunDuration(run))),
+            right = active and L["in progress"] or (date(L["%d %b"], run.start) .. "  ·  " .. ns.Duration(ns.RunDuration(run))),
             color = active and UI.ACCENT or nil,
         }
     end
@@ -133,7 +134,7 @@ function Page:RenderBosses(run, active)
     local doc = self.doc
     local journal = ns.JournalBosses(run.journalID)
     if not journal and #run.bosses == 0 then return end
-    doc:Heading("Bosses")
+    doc:Heading(L["Bosses"])
     local byName, listed = {}, {}
     for _, boss in ipairs(run.bosses) do byName[boss.name] = boss end
 
@@ -145,7 +146,7 @@ function Page:RenderBosses(run, active)
         end
         local extra = { date("%H:%M", boss.t) }
         if boss.duration then extra[#extra + 1] = ns.Short(boss.duration) end
-        if boss.wipes > 0 then extra[#extra + 1] = boss.wipes .. (boss.wipes == 1 and " wipe first" or " wipes first") end
+        if boss.wipes > 0 then extra[#extra + 1] = (boss.wipes == 1 and L["%d wipe first"] or L["%d wipes first"]):format(boss.wipes) end
         doc:Check(name .. "  |cff6b5d4f(" .. table.concat(extra, ", ") .. ")|r", true, UI.INK)
     end
     for _, name in ipairs(journal or {}) do
@@ -163,37 +164,37 @@ function Page:RenderRun(i)
     ns.Book:BackLink(doc)
     local run = i and ns.db.runs[i]
     if not run then
-        doc:Title("No runs yet")
-        doc:Faded("Each time you enter a dungeon or raid, the run is written down here.")
+        doc:Title(L["No runs yet"])
+        doc:Faded(L["Each time you enter a dungeon or raid, the run is written down here."])
         doc:Finish()
         return
     end
 
     doc:Title(run.name)
-    local kind = strtrim(string.format("%s  %s", run.difficulty or "", run.size and run.size > 0 and ("· " .. run.size .. "-player") or ""))
+    local kind = strtrim(string.format("%s  %s", run.difficulty or "", run.size and run.size > 0 and L["· %d-player"]:format(run.size) or ""))
     if kind ~= "" then doc:Faded(kind) end
     doc:Gap(4)
 
     local active = ns.ActiveRun() == run
     local ended = run.finish or run.leftAt
-    doc:Line(string.format("Entered %s at %s, at level %d%s.", ns.Date(run.start), date("%H:%M", run.start),
-        run.level or 0, ROLE[run.role] and (", as the " .. ROLE[run.role]) or ""))
+    doc:Line(string.format(L["Entered %s at %s, at level %d%s."], ns.Date(run.start), date("%H:%M", run.start),
+        run.level or 0, ROLE[run.role] and L[", as the %s"]:format(ROLE[run.role]) or ""))
     if active then
-        doc:Line("In progress: " .. ns.Duration(ns.RunDuration(run)) .. " so far.")
+        doc:Line(L["In progress: %s so far."]:format(ns.Duration(ns.RunDuration(run))))
     elseif ended then
-        doc:Line(string.format("Left at %s, after %s.", date("%H:%M", ended), ns.Duration(ns.RunDuration(run))))
+        doc:Line(string.format(L["Left at %s, after %s."], date("%H:%M", ended), ns.Duration(ns.RunDuration(run))))
     end
-    doc:Line(BossText(run) .. " defeated" .. (run.wipes > 0 and string.format(", %d %s", run.wipes, run.wipes == 1 and "wipe" or "wipes") or "") .. ".")
-    if FullClear(run) then doc:Line("A full clear.", UI.ACCENT) end
-    if run.kills > 0 then doc:Line("Creatures slain: " .. ns.Number(run.kills)) end
-    if (run.xp or 0) > 0 then doc:Line("Experience gained: " .. ns.Number(run.xp)) end
-    if (run.money or 0) > 0 then doc:Line("Coin gathered: " .. ns.Money(run.money)) end
-    if run.deaths > 0 then doc:Line("Your deaths: " .. run.deaths, UI.ACCENT) end
+    doc:Line(L["%s defeated%s."]:format(BossText(run), run.wipes > 0 and string.format(run.wipes == 1 and L[", %d wipe"] or L[", %d wipes"], run.wipes) or ""))
+    if FullClear(run) then doc:Line(L["A full clear."], UI.ACCENT) end
+    if run.kills > 0 then doc:Line(L["Creatures slain: %s"]:format(ns.Number(run.kills))) end
+    if (run.xp or 0) > 0 then doc:Line(L["Experience gained: %s"]:format(ns.Number(run.xp))) end
+    if (run.money or 0) > 0 then doc:Line(L["Coin gathered: %s"]:format(ns.Money(run.money))) end
+    if run.deaths > 0 then doc:Line(L["Your deaths: %s"]:format(run.deaths), UI.ACCENT) end
 
     self:RenderBosses(run, active)
 
     if #run.group > 0 then
-        doc:Heading("Companions")
+        doc:Heading(L["Companions"])
         for _, member in ipairs(run.group) do
             doc:Line(ClassInk(member.class) .. member.name .. "|r"
                 .. (ROLE_SHORT[member.role] and ("  |cff6b5d4f" .. ROLE_SHORT[member.role] .. "|r") or ""))
@@ -204,17 +205,17 @@ function Page:RenderRun(i)
     for id, n in pairs(run.mobs or {}) do mobs[#mobs + 1] = { id = id, n = n } end
     if #mobs > 0 then
         table.sort(mobs, function(a, b) return a.n > b.n end)
-        doc:Heading("Creatures slain inside")
+        doc:Heading(L["Creatures slain inside"])
         for k = 1, math.min(#mobs, 12) do
             doc:Line(string.format("%s  x%d", Slain(mobs[k].id), mobs[k].n))
         end
     end
 
     if #run.loot > 0 then
-        doc:Heading("Treasures")
+        doc:Heading(L["Treasures"])
         for _, item in ipairs(run.loot) do
             local source = item.time and LootSource(run, item.time)
-            doc:Item(item.link, source and ("from " .. source) or nil)
+            doc:Item(item.link, source and L["from %s"]:format(source) or nil)
         end
     end
 
@@ -231,8 +232,8 @@ function Page:RenderRun(i)
     end
     if count > 1 then
         doc:Gap(6)
-        doc:Faded(string.format("You've run %s %d times%s. See \"By dungeon\" for its records.", run.name, count,
-            fastest and (", fastest full clear " .. ns.Duration(fastest)) or ""))
+        doc:Faded(string.format(L["You've run %s %d times%s. See \"By dungeon\" for its records."], run.name, count,
+            fastest and L[", fastest full clear %s"]:format(ns.Duration(fastest)) or ""))
     end
     doc:Finish()
 end
@@ -272,8 +273,8 @@ function Page:RenderInstanceList()
         items[#items + 1] = {
             key = inst.key,
             left = inst.name,
-            right = string.format("%d %s%s", #inst.runs, #inst.runs == 1 and "run" or "runs",
-                clears > 0 and string.format("  ·  %d %s", clears, clears == 1 and "clear" or "clears") or ""),
+            right = string.format(#inst.runs == 1 and L["%d run%s"] or L["%d runs%s"], #inst.runs,
+                clears > 0 and string.format(clears == 1 and L["  ·  %d clear"] or L["  ·  %d clears"], clears) or ""),
         }
     end
     self.list:SetItems(items, self.selectedInstance, function(key)
@@ -299,8 +300,8 @@ function Page:RenderInstance(inst)
     doc:Clear("instance:" .. tostring(inst and inst.key))
     ns.Book:BackLink(doc)
     if not inst then
-        doc:Title("No dungeons yet")
-        doc:Faded("Every dungeon and raid you enter gets its own page of records here.")
+        doc:Title(L["No dungeons yet"])
+        doc:Faded(L["Every dungeon and raid you enter gets its own page of records here."])
         doc:Finish()
         return
     end
@@ -326,7 +327,7 @@ function Page:RenderInstance(inst)
     end
 
     for _, run in ipairs(runs) do
-        local d = run.difficulty and run.difficulty ~= "" and run.difficulty or "Normal"
+        local d = run.difficulty and run.difficulty ~= "" and run.difficulty or L["Normal"]
         if not diffs[d] then diffOrder[#diffOrder + 1] = d end
         diffs[d] = (diffs[d] or 0) + 1
         local duration = ns.RunDuration(run)
@@ -361,19 +362,19 @@ function Page:RenderInstance(inst)
     doc:Faded(table.concat(d, "  ·  "))
     doc:Gap(4)
 
-    doc:Line(string.format("Run %d %s: first %s, last %s.", #runs, #runs == 1 and "time" or "times",
+    doc:Line(string.format(#runs == 1 and L["Run %d time: first %s, last %s."] or L["Run %d times: first %s, last %s."], #runs,
         ns.Date(runs[1].start), ns.Date(runs[#runs].start)))
     if clears > 0 then
-        doc:Line(string.format("Full clears: %d, fastest %s, average %s.", clears, ns.Duration(fastest),
+        doc:Line(string.format(L["Full clears: %d, fastest %s, average %s."], clears, ns.Duration(fastest),
             ns.Duration(clearTime / clears)))
     end
-    doc:Line("Time spent inside: " .. ns.Duration(inside))
-    doc:Line(string.format("Bosses defeated: %d%s", bosses,
-        wipes > 0 and string.format(", with %d %s", wipes, wipes == 1 and "wipe" or "wipes") or ""))
-    if kills > 0 then doc:Line("Creatures slain: " .. ns.Number(kills)) end
-    if xp > 0 then doc:Line("Experience gained: " .. ns.Number(xp)) end
-    if money > 0 then doc:Line("Coin gathered: " .. ns.Money(money)) end
-    if deaths > 0 then doc:Line("Your deaths: " .. deaths, UI.ACCENT) end
+    doc:Line(L["Time spent inside: %s"]:format(ns.Duration(inside)))
+    doc:Line(string.format(L["Bosses defeated: %d%s"], bosses,
+        wipes > 0 and string.format(wipes == 1 and L[", with %d wipe"] or L[", with %d wipes"], wipes) or ""))
+    if kills > 0 then doc:Line(L["Creatures slain: %s"]:format(ns.Number(kills))) end
+    if xp > 0 then doc:Line(L["Experience gained: %s"]:format(ns.Number(xp))) end
+    if money > 0 then doc:Line(L["Coin gathered: %s"]:format(ns.Money(money))) end
+    if deaths > 0 then doc:Line(L["Your deaths: %s"]:format(deaths), UI.ACCENT) end
 
     -- Every boss in journal order (then any it doesn't list), with your record against each.
     local journal = ns.JournalBosses(journalID)
@@ -386,48 +387,48 @@ function Page:RenderInstance(inst)
         if not listed[name] then names[#names + 1] = name end
     end
     if #names > 0 then
-        doc:Heading("Bosses")
+        doc:Heading(L["Bosses"])
         for _, name in ipairs(names) do
             local b = bossStats[name]
             if b then
-                local extra = { "slain x" .. b.kills }
-                if b.fastest then extra[#extra + 1] = "fastest " .. ns.Short(b.fastest) end
-                if b.wipes > 0 then extra[#extra + 1] = b.wipes .. (b.wipes == 1 and " wipe" or " wipes") end
+                local extra = { L["slain x%d"]:format(b.kills) }
+                if b.fastest then extra[#extra + 1] = L["fastest %s"]:format(ns.Short(b.fastest)) end
+                if b.wipes > 0 then extra[#extra + 1] = (b.wipes == 1 and L["%d wipe"] or L["%d wipes"]):format(b.wipes) end
                 doc:Check(name .. "  |cff6b5d4f(" .. table.concat(extra, ", ") .. ")|r", true, UI.INK)
             else
-                doc:Check(name .. "  |cff6b5d4f(never beaten)|r", false, UI.FADED)
+                doc:Check(name .. L["  |cff6b5d4f(never beaten)|r"], false, UI.FADED)
             end
         end
     end
 
     local regulars = TopCounts(friends, 8)
     if #regulars > 0 then
-        doc:Heading("Companions")
+        doc:Heading(L["Companions"])
         for _, e in ipairs(regulars) do
             doc:Line(ClassInk(friendClass[e.k]) .. e.k .. "|r"
-                .. (e.n > 1 and string.format("  |cff6b5d4fx%d runs|r", e.n) or ""))
+                .. (e.n > 1 and string.format(L["  |cff6b5d4fx%d runs|r"], e.n) or ""))
         end
     end
 
     local slain = TopCounts(mobs, 12)
     if #slain > 0 then
-        doc:Heading("Creatures slain inside")
+        doc:Heading(L["Creatures slain inside"])
         for _, e in ipairs(slain) do doc:Line(string.format("%s  x%d", Slain(e.k), e.n)) end
     end
 
     if #lootOrder > 0 then
-        doc:Heading("Treasures (" .. #lootOrder .. ")")
+        doc:Heading(L["Treasures (%d)"]:format(#lootOrder))
         for k = #lootOrder, math.max(1, #lootOrder - 24), -1 do
             local link = lootOrder[k]
             doc:Item(link, loot[link] > 1 and ("x" .. loot[link]) or nil)
         end
-        if #lootOrder > 25 then doc:Faded("...and older finds; see each run.") end
+        if #lootOrder > 25 then doc:Faded(L["...and older finds; see each run."]) end
     end
 
-    doc:Heading("Runs")
+    doc:Heading(L["Runs"])
     for k = #runs, 1, -1 do
         local run = runs[k]
-        doc:Line(string.format("%s  |cff6b5d4f%s  ·  %s  ·  %s|r", date("%d %b %Y", run.start),
+        doc:Line(string.format("%s  |cff6b5d4f%s  ·  %s  ·  %s|r", date(L["%d %b %Y"], run.start),
             run.difficulty or "", ns.Duration(ns.RunDuration(run)), BossText(run)))
     end
     doc:Finish()

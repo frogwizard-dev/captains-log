@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local issecret = ns.issecret
 
 -- One record per dungeon or raid run. Leaving and coming back to the same instance within
@@ -146,7 +147,7 @@ end)
 ns.On("ENCOUNTER_END", function(encounterID, encounterName, _, _, success)
     local run = ns.ActiveRun()
     if not run or issecret(success) then return end
-    if issecret(encounterName) or not encounterName then encounterName = "a boss" end
+    if issecret(encounterName) or not encounterName then encounterName = L["a boss"] end
     if issecret(encounterID) then encounterID = encounterName end
     local duration = run.pullAt and (time() - run.pullAt)
     run.pullAt = nil

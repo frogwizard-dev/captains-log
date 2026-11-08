@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local issecret = ns.issecret
 
 -- Pictures of the journey. Every screenshot (the game's own key, or the book's "Take a
@@ -6,9 +7,9 @@ local issecret = ns.issecret
 -- with, what you were looking at. With the one-time setup (see below), the card shows the
 -- screenshot itself, straight from the game's Screenshots folder.
 
-BINDING_HEADER_CAPTAINSLOG = "Captain's Log"
-BINDING_NAME_CAPTAINSLOG_PICTURE = "Take a picture for the journal"
-BINDING_NAME_CAPTAINSLOG_TOGGLE = "Open or close the book"
+BINDING_HEADER_CAPTAINSLOG = L["Captain's Log"]
+BINDING_NAME_CAPTAINSLOG_PICTURE = L["Take a picture for the journal"]
+BINDING_NAME_CAPTAINSLOG_TOGGLE = L["Open or close the book"]
 
 ------------------------------------------------------------------------------
 -- Taking a picture
@@ -97,8 +98,8 @@ local function Record()
     table.insert(day.photos, photo)
     ns.Log("photo", { photoT = t, place = photo.place, zone = photo.zone })
     if fromBook then
-        ns.Print(ns.db.settings.photosShow and "Picture taken for today's page; /reload to see it in the book."
-            or "Picture taken for today's page.")
+        ns.Print(ns.db.settings.photosShow and L["Picture taken for today's page; /reload to see it in the book."]
+            or L["Picture taken for today's page."])
     end
 end
 
@@ -180,7 +181,7 @@ function ns.ImportShots()
         table.sort(day.photos, function(a, b) return a.t < b.t end)
     end
     if added > 0 then
-        ns.Print(("Added %d screenshot%s from your Screenshots folder to the journal."):format(added, added == 1 and "" or "s"))
+        ns.Print((added == 1 and L["Added %d screenshot from your Screenshots folder to the journal."] or L["Added %d screenshots from your Screenshots folder to the journal."]):format(added))
     end
 end
 ns.On("PLAYER_LOGIN", function() ns.ImportShots() end)

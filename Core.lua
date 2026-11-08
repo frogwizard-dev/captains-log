@@ -1,4 +1,5 @@
 local ADDON, ns = ...
+local L = ns.L
 
 ns.defaults = {
     settings = {
@@ -30,7 +31,7 @@ ns.defaults = {
 -- Midnight hides some values from addons ("secret values"); they can't be compared or stored.
 ns.issecret = FrogLib.issecret
 
-ns.Print = FrogLib.Util.Printer("Captain's Log", "d8b56a")
+ns.Print = FrogLib.Util.Printer(L["Captain's Log"], "d8b56a")
 
 function ns.Debug(msg)
     if ns.db and ns.db.settings.debug then
@@ -164,17 +165,17 @@ end
 function ns.Duration(seconds)
     seconds = math.floor(seconds or 0)
     local h, m = math.floor(seconds / 3600), math.floor(seconds % 3600 / 60)
-    if h > 0 then return string.format("%dh %dm", h, m) end
-    if m > 0 then return string.format("%dm", m) end
-    return "under a minute"
+    if h > 0 then return string.format(L["%dh %dm"], h, m) end
+    if m > 0 then return string.format(L["%dm"], m) end
+    return L["under a minute"]
 end
 
 function ns.Ago(t)
     local s = time() - t
-    if s < 60 then return "just now" end
-    if s < 3600 then return math.floor(s / 60) .. "m ago" end
-    if s < 86400 then return math.floor(s / 3600) .. "h ago" end
-    return math.floor(s / 86400) .. "d ago"
+    if s < 60 then return L["just now"] end
+    if s < 3600 then return L["%dm ago"]:format(math.floor(s / 60)) end
+    if s < 86400 then return L["%dh ago"]:format(math.floor(s / 3600)) end
+    return L["%dd ago"]:format(math.floor(s / 86400))
 end
 
 -- The dungeon run you're in right now, if any (Dungeons.lua fills this in).
@@ -183,8 +184,8 @@ function ns.ActiveRun() end
 -- Fight lengths: "1m 12s", "45s".
 function ns.Short(seconds)
     seconds = math.floor(seconds or 0)
-    if seconds >= 60 then return string.format("%dm %02ds", math.floor(seconds / 60), seconds % 60) end
-    return seconds .. "s"
+    if seconds >= 60 then return string.format(L["%dm %02ds"], math.floor(seconds / 60), seconds % 60) end
+    return L["%ds"]:format(seconds)
 end
 
 function ns.Date(t)
@@ -230,7 +231,7 @@ SlashCmdList.CAPTAINSLOG = function(msg)
     msg = strtrim(msg or ""):lower()
     if msg == "debug" then
         ns.db.settings.debug = not ns.db.settings.debug
-        ns.Print("kill debug messages " .. (ns.db.settings.debug and "on" or "off"))
+        ns.Print(L["kill debug messages %s"]:format(ns.db.settings.debug and L["on"] or L["off"]))
     elseif msg == "picture" or msg == "photo" then
         ns.TakePicture()
     elseif msg == "probe" or msg:match("^probe ") then

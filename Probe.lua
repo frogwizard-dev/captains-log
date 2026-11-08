@@ -1,4 +1,5 @@
 local ADDON, ns = ...
+local L = ns.L
 
 -- Temporary test: "/log probe" records what this client tells addons about hits, misses and casts,
 -- for you, your target, your pet and every nameplate, to find out whether immunities, resists and

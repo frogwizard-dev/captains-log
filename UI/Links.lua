@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local UI = ns.UI
 
 -- The link kinds every page can write: a creature, quest, person or land opens its own page
@@ -6,20 +7,20 @@ local UI = ns.UI
 
 local function MobName(id)
     local m = ns.db.mobs[id]
-    return m and m.name or ("Unknown creature #" .. tostring(id))
+    return m and m.name or L["Unknown creature #%s"]:format(tostring(id))
 end
 
 UI.RegisterLink("mob", function(id)
     ns.Book:Goto("bestiary", tonumber(id), true)
 end, function(id)
-    return MobName(tonumber(id)), "Click to open in the bestiary."
+    return MobName(tonumber(id)), L["Click to open in the bestiary."]
 end)
 
 UI.RegisterLink("quest", function(id)
     ns.Book:Goto("quests", tonumber(id), true)
 end, function(id)
     local q = ns.db.quests[tonumber(id)]
-    return q and q.title or ("Quest #" .. id), "Click to open in the quest journal."
+    return q and q.title or L["Quest #%s"]:format(id), L["Click to open in the quest journal."]
 end)
 
 UI.RegisterLink("npc", function(id)
@@ -27,32 +28,32 @@ UI.RegisterLink("npc", function(id)
 end, function(id)
     local n = ns.db.npcs[tonumber(id)]
     if not n then return end
-    return n.name, (n.title and (n.title .. "\n") or "") .. "Click to open in People."
+    return n.name, (n.title and (n.title .. "\n") or "") .. L["Click to open in People."]
 end)
 
 UI.RegisterLink("zone", function(name)
     if ns.db.zones[name] then ns.Book:Goto("zones", name, true) end
 end, function(name)
-    if ns.db.zones[name] then return name, "Click to open in Lands." end
+    if ns.db.zones[name] then return name, L["Click to open in Lands."] end
 end)
 
 UI.RegisterLink("photos", function(day)
     ns.Book:Goto("log", "photos:" .. day, true)
 end, function()
-    return "Pictures", "Click to see that day's pictures."
+    return L["Pictures"], L["Click to see that day's pictures."]
 end)
 
 UI.RegisterLink("dungeon", function(key)
     ns.Book:Goto("dungeons", key, true)
 end, function()
-    return "Dungeons", "Click to open its page in Dungeons: every run, your record against each boss, and the loot."
+    return L["Dungeons"], L["Click to open its page in Dungeons: every run, your record against each boss, and the loot."]
 end)
 
 UI.RegisterLink("fish", function(id)
     ns.Book:Goto("fishing", tonumber(id), true)
 end, function(id)
     local e = ns.FishingData().items[tonumber(id)]
-    return e and e.name or ("Item #" .. id), "Click to open in Fishing."
+    return e and e.name or L["Item #%s"]:format(id), L["Click to open in Fishing."]
 end)
 
 UI.RegisterLink("fishspot", function(zone, place)
@@ -60,21 +61,20 @@ UI.RegisterLink("fishspot", function(zone, place)
     if ns.FishSpot(key) then ns.Book:Goto("fishing", key, true) end
 end, function(zone, place)
     if ns.FishSpot(ns.FishSpotKey(zone, place)) then
-        return ns.FishSpotName(zone, place), "Click to open this fishing spot in Fishing."
+        return ns.FishSpotName(zone, place), L["Click to open this fishing spot in Fishing."]
     end
 end)
 
 UI.RegisterLink("back", function()
     ns.Book:GoBack()
 end, function()
-    return "Back", "Return to the page you came from."
+    return L["Back"], L["Return to the page you came from."]
 end)
 
 UI.RegisterLink("wp", function(mapID, x, y)
     UI.Waypoint(mapID, x, y)
 end, function()
-    return "Waypoint", "Puts a pin on your world map, with the arrow on screen to lead you there. "
-        .. "It replaces any pin you placed yourself."
+    return L["Waypoint"], L["Puts a pin on your world map, with the arrow on screen to lead you there. It replaces any pin you placed yourself."]
 end)
 
 -- Writers, so pages don't repeat the formatting.
@@ -86,12 +86,12 @@ end
 
 function UI.QuestLink(id, text)
     local q = ns.db.quests[id]
-    return UI.Link(text or (q and q.title) or ("Quest #" .. id), "quest", id)
+    return UI.Link(text or (q and q.title) or L["Quest #%s"]:format(id), "quest", id)
 end
 
 function UI.NpcLink(id, text)
     local n = ns.db.npcs[id]
-    return UI.Link(text or (n and n.name) or ("Unknown #" .. id), "npc", id)
+    return UI.Link(text or (n and n.name) or L["Unknown #%s"]:format(id), "npc", id)
 end
 
 -- A land's name, as a link when it has a Lands page (names with ":" can't be link args).
@@ -104,7 +104,7 @@ end
 -- A catch, opening its page in Fishing.
 function UI.FishLink(id, text)
     local e = ns.FishingData().items[id]
-    return UI.Link(text or (e and e.name) or ("Item #" .. id), "fish", id)
+    return UI.Link(text or (e and e.name) or L["Item #%s"]:format(id), "fish", id)
 end
 
 -- A fishing spot (a place in a land), as a link to its page in Fishing where its names allow.
@@ -116,5 +116,6 @@ end
 
 function UI.WaypointLink(mapID, x, y, text)
     if not (mapID and x and y) then return "" end
-    return UI.Link(text or "Waypoint", "wp", mapID, x, y)
+    return UI.Link(text or L["Waypoint"]
+, "wp", mapID, x, y)
 end

@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local issecret = ns.issecret
 
 -- There's no combat log on this client, so kills are pieced together from three signals:
@@ -175,7 +176,7 @@ local function Mob(id, name)
         local day = ns.Day()
         day.discovered = day.discovered + 1
         if ns.db.settings.announce and name then
-            ns.Print("New bestiary entry: " .. name)
+            ns.Print(L["New bestiary entry: %s"]:format(name))
         end
         if name and type(id) == "number" then LogMeet(name) end
         ns.Refresh()

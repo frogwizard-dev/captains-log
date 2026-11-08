@@ -1,5 +1,12 @@
 # Captain's Log
 
+## 0.7.0
+
+- **简体中文** — Captain's Log can now show in other languages, and starts with Simplified Chinese (used automatically on a Chinese game client). It's a first pass: corrections from native players are very welcome.
+- Names and words the game gives (zones, creatures, items) were already in your language; this covers the addon's own text.
+- Known gap on non-English clients: other players' pets and totems may slip into People, since spotting them reads English tooltip text.
+- Options > AddOns with the gamepad interface: the Frog Wizard pages no longer upset the game's gamepad navigation (which could bring up errors on opening the settings). From FrogLib 1.5.0.
+
 ## 0.6.3
 
 - CurseForge doesn't allow a .bat file inside an add-on, so **Set up pictures.bat** is no longer in the download (which is why 0.5.1 to 0.6.2 never appeared there). Download it from the link in the book instead (Settings > Set up pictures..., or "How?" on a day's pictures), put it in the add-on's folder and double-click it as before. Everything from 0.5.1 to 0.6.2 comes with this version.

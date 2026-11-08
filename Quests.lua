@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local issecret = ns.issecret
 
 -- The quest journal. Each quest keeps its story: the text the giver told you, the objective,
@@ -230,7 +231,7 @@ ns.On("QUEST_TURNED_IN", function(questID, xp, money)
     if c and not (c.id == questID or (c.title and c.title == q.title)) then c = nil end
     completing = nil
 
-    q.title = q.title or C_QuestLog.GetTitleForQuestID(questID) or (c and c.title) or ("Quest #" .. questID)
+    q.title = q.title or C_QuestLog.GetTitleForQuestID(questID) or (c and c.title) or L["Quest #%d"]:format(questID)
     q.completed = time()
     q.zone = ns.Zone()
     q.level = UnitLevel("player")

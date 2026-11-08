@@ -1,17 +1,18 @@
 local _, ns = ...
+local L = ns.L
 local UI = ns.UI
 
-local Page = { label = "Lands", color = { 0.55, 0.40, 0.10 }, order = 4 }
+local Page = { label = L["Lands"], color = { 0.55, 0.40, 0.10 }, order = 4 }
 ns.Pages.zones = Page
 
 local SORTS = {
-    { "recent", "Recently visited" },
-    { "first", "First visited" },
-    { "time", "Most time spent" },
-    { "name", "Name" },
+    { "recent", L["Recently visited"] },
+    { "first", L["First visited"] },
+    { "time", L["Most time spent"] },
+    { "name", L["Name"] },
 }
-local NOTABLE = { rare = "Rare", rareelite = "Rare Elite", elite = "Elite", worldboss = "Boss" }
-local INSTANCE_KIND = { party = "Dungeon", raid = "Raid", scenario = "Scenario", pvp = "Battleground", arena = "Arena" }
+local NOTABLE = { rare = L["Rare"], rareelite = L["Rare Elite"], elite = L["Elite"], worldboss = L["Boss"] }
+local INSTANCE_KIND = { party = L["Dungeon"], raid = L["Raid"], scenario = L["Scenario"], pvp = L["Battleground"], arena = L["Arena"] }
 local LIST_MAX = 15
 
 local function Sorter(key, zones)
@@ -32,7 +33,7 @@ end
 function Page:Build(left, right)
     local W, H = ns.Book.CONTENT_W, ns.Book.CONTENT_H
     self.sort, self.query = "recent", ""
-    self.sub = ns.Book:Header(left, "Lands Visited")
+    self.sub = ns.Book:Header(left, L["Lands Visited"])
 
     local search = UI.SearchBox(left, 190, function(text)
         self.query = text:lower()
@@ -89,8 +90,8 @@ local function IsInstance(name, z)
     return z.instance ~= nil or #Runs(name) > 0
 end
 
-local INSTANCES = "Dungeons & raids"
-local ELSEWHERE = "Elsewhere"
+local INSTANCES = L["Dungeons & raids"]
+local ELSEWHERE = L["Elsewhere"]
 
 -- Which heading a land is listed under: its continent, or the dungeons.
 local function LandGroup(name, z)
@@ -121,7 +122,7 @@ function Page:Render()
     local order = {}
     for g in pairs(groups) do order[#order + 1] = g end
     table.sort(order, GroupOrder)
-    self.sub:SetText(total .. (total == 1 and " land" or " lands") .. "  ·  search lands or places in them")
+    self.sub:SetText((total == 1 and L["%d land  ·  search lands or places in them"] or L["%d lands  ·  search lands or places in them"]):format(total))
 
     -- Each landmass as a heading, its lands beneath in the chosen order.
     local items, first = {}, nil
@@ -144,7 +145,7 @@ end
 
 local function More(doc, shown, total, where)
     if total > shown then
-        doc:Faded(string.format("...and %d more%s.", total - shown, where and (" (see " .. where .. ")") or ""))
+        doc:Faded(string.format(L["...and %d more%s."], total - shown, where and L[" (see %s)"]:format(where) or ""))
     end
 end
 
@@ -159,26 +160,26 @@ function Page:RenderMap(name, z, people, deaths)
         kinds[kind] = true
     end
     for place, p in pairs(z.places or {}) do
-        if p.mapID == mapID then add(p.x, p.y, "place", place .. "\nFound " .. ns.Date(p.t)) end
+        if p.mapID == mapID then add(p.x, p.y, "place", L["%s\nFound %s"]:format(place, ns.Date(p.t))) end
     end
     for _, n in ipairs(people) do
         if n.mapID == mapID then add(n.x, n.y, "npc", n.name .. (n.title and ("\n" .. n.title) or "")) end
     end
     for _, d in ipairs(deaths) do
         if d.mapID == mapID then
-            add(d.x, d.y, "death", (d.killer and ("Slain by " .. d.killer) or "Died") .. "\n" .. ns.Date(d.time))
+            add(d.x, d.y, "death", (d.killer and L["Slain by %s"]:format(d.killer) or L["Died"]) .. "\n" .. ns.Date(d.time))
         end
     end
 
     local info = C_Map.GetMapInfo(mapID)
-    doc:Heading("The map" .. (info and info.name and info.name ~= name and (" - " .. info.name) or ""),
+    doc:Heading((info and info.name and info.name ~= name) and L["The map - %s"]:format(info.name) or L["The map"],
         UI.MapActions(function() ns.MapPins.Show("zone", name, mapID) end, nil, nil, nil,
-            "Pins this land's places, deaths and the folk who serve you (vendors, trainers...) to the game's map."))
+            L["Pins this land's places, deaths and the folk who serve you (vendors, trainers...) to the game's map."]))
     local legend = {}
-    if kinds.place then legend[#legend + 1] = UI.Swatch("place", "places") end
-    if kinds.npc then legend[#legend + 1] = UI.Swatch("npc", "people") end
-    if kinds.death then legend[#legend + 1] = UI.Swatch("death", "deaths") end
-    if #legend > 0 then doc:Faded(table.concat(legend, "     ") .. "     (hover a pin)") end
+    if kinds.place then legend[#legend + 1] = UI.Swatch("place", L["places"]) end
+    if kinds.npc then legend[#legend + 1] = UI.Swatch("npc", L["people"]) end
+    if kinds.death then legend[#legend + 1] = UI.Swatch("death", L["deaths"]) end
+    if #legend > 0 then doc:Faded(L["%s     (hover a pin)"]:format(table.concat(legend, "     "))) end
     doc:Map(mapID, spots, { "zone", name })
 end
 
@@ -196,17 +197,17 @@ function Page:RenderDungeon(runs)
             if not fastest or d < fastest then fastest = d end
         end
     end
-    doc:Heading("Your runs")
-    doc:Line(string.format("Run %d %s, last on %s.", #runs, #runs == 1 and "time" or "times", ns.Date(runs[#runs].start)))
+    doc:Heading(L["Your runs"])
+    doc:Line(string.format(#runs == 1 and L["Run %d time, last on %s."] or L["Run %d times, last on %s."], #runs, ns.Date(runs[#runs].start)))
     if clears > 0 then
-        doc:Line(string.format("Full clears: %d, fastest %s.", clears, ns.Duration(fastest)))
+        doc:Line(string.format(L["Full clears: %d, fastest %s."], clears, ns.Duration(fastest)))
     end
-    doc:Text(UI.Link("See every run, boss records and loot", "dungeon", ns.InstanceKey(runs[#runs])), 11, nil, nil, 8)
+    doc:Text(UI.Link(L["See every run, boss records and loot"], "dungeon", ns.InstanceKey(runs[#runs])), 11, nil, nil, 8)
 
     if journalID and EJ_GetInstanceInfo then
         local ok, _, _, _, _, _, _, areaMapID = pcall(EJ_GetInstanceInfo, journalID)
         if ok and type(areaMapID) == "number" and areaMapID > 0 then
-            doc:Heading("The map")
+            doc:Heading(L["The map"])
             doc:Map(areaMapID, {})
         end
     end
@@ -219,8 +220,8 @@ function Page:RenderZone(name)
     local z = name and ns.db.zones[name]
     if not z then
         self.title = nil
-        doc:Title(next(ns.db.zones) and "Nothing matches" or "Uncharted")
-        doc:Faded("Lands appear here as you travel.")
+        doc:Title(next(ns.db.zones) and L["Nothing matches"] or L["Uncharted"])
+        doc:Faded(L["Lands appear here as you travel."])
         doc:Finish()
         return
     end
@@ -229,7 +230,7 @@ function Page:RenderZone(name)
     local instance = IsInstance(name, z)
     local runs = Runs(name)
     if instance then
-        local kind = INSTANCE_KIND[z.instance] or INSTANCE_KIND[runs[1] and runs[1].type] or "Dungeon"
+        local kind = INSTANCE_KIND[z.instance] or INSTANCE_KIND[runs[1] and runs[1].type] or L["Dungeon"]
         doc:Faded(kind)
     else
         local mapID = ZoneMapID(name, z)
@@ -239,20 +240,20 @@ function Page:RenderZone(name)
     end
     doc:Gap(4)
 
-    doc:Line(string.format("First arrived %s at level %d.", ns.Date(z.first), z.level or 0))
+    doc:Line(string.format(L["First arrived %s at level %d."], ns.Date(z.first), z.level or 0))
     if z.visits and z.visits > 1 then
-        doc:Line(string.format("Visited %d times, last %s.", z.visits, ns.Ago(z.last or z.first)))
+        doc:Line(string.format(L["Visited %d times, last %s."], z.visits, ns.Ago(z.last or z.first)))
     end
     if z.maxLevel and z.level and z.maxLevel > z.level then
-        doc:Line(string.format("You were level %d to %d while here.", z.level, z.maxLevel))
+        doc:Line(string.format(L["You were level %d to %d while here."], z.level, z.maxLevel))
     end
-    doc:Line("Time spent: " .. ns.Duration(z.seconds))
-    if z.kills > 0 then doc:Line("Creatures slain: " .. ns.Number(z.kills)) end
-    if z.quests > 0 then doc:Line("Quests completed: " .. z.quests) end
+    doc:Line(L["Time spent: %s"]:format(ns.Duration(z.seconds)))
+    if z.kills > 0 then doc:Line(L["Creatures slain: %s"]:format(ns.Number(z.kills))) end
+    if z.quests > 0 then doc:Line(L["Quests completed: %s"]:format(z.quests)) end
     local fish = 0
     for _, spot in pairs(ns.FishingData().spots[name] or {}) do fish = fish + spot.n end
-    if fish > 0 then doc:Line("Fish caught: " .. ns.Number(fish)) end
-    if z.deaths > 0 then doc:Line("Deaths: " .. z.deaths, UI.ACCENT) end
+    if fish > 0 then doc:Line(L["Fish caught: %s"]:format(ns.Number(fish))) end
+    if z.deaths > 0 then doc:Line(L["Deaths: %s"]:format(z.deaths), UI.ACCENT) end
 
     -- Everything below is gathered from the other sections of the book.
     local people, npcID = {}, {}
@@ -282,48 +283,48 @@ function Page:RenderZone(name)
     for place, p in pairs(z.places or {}) do places[#places + 1] = { name = place, p = p } end
     if #places > 0 then
         table.sort(places, function(a, b) return a.p.t < b.p.t end)
-        doc:Heading("Places discovered (" .. #places .. ")")
+        doc:Heading(L["Places discovered (%d)"]:format(#places))
         for _, e in ipairs(places) do
-            doc:Line(string.format("%s  |cff6b5d4f%s, level %d|r", e.name, ns.Date(e.p.t), e.p.level or 0))
+            doc:Line(string.format(L["%s  |cff6b5d4f%s, level %d|r"], e.name, ns.Date(e.p.t), e.p.level or 0))
         end
     end
 
     -- Where you've fished here, each opening its spot in Fishing.
     local fished = ns.FishingSpotsIn(name)
     if #fished > 0 then
-        doc:Heading("Fishing here")
+        doc:Heading(L["Fishing here"])
         for i = 1, math.min(#fished, LIST_MAX) do
             local e = fished[i]
             local top = ns.FishTopCatch(e.spot)
             local topName = top and ns.FishingData().items[top] and ns.FishingData().items[top].name
             doc:Line(string.format("%s  x%d%s", UI.FishSpotLink(name, e.place), e.spot.n,
-                topName and ("  |cff6b5d4fmostly " .. topName .. "|r") or ""))
+                topName and L["  |cff6b5d4fmostly %s|r"]:format(topName) or ""))
         end
-        More(doc, LIST_MAX, #fished, "Fishing")
+        More(doc, LIST_MAX, #fished, L["Fishing"])
     end
 
     -- Pictures taken in this land, each opening its day's pictures.
     local photos = ns.AllPhotos(name)
     if #photos > 0 then
-        doc:Heading("Pictures taken here (" .. #photos .. ")")
+        doc:Heading(L["Pictures taken here (%d)"]:format(#photos))
         for i = #photos, math.max(1, #photos - LIST_MAX + 1), -1 do
             local e = photos[i]
             local p = e.photo
             doc:Line(UI.Link(p.caption or (p.place or name), "photos", e.day)
-                .. "  |cff6b5d4f" .. date("%d %b %Y, %H:%M", p.t) .. "|r")
+                .. "  |cff6b5d4f" .. date(L["%d %b %Y, %H:%M"], p.t) .. "|r")
         end
         More(doc, LIST_MAX, #photos)
     end
 
     if #people > 0 then
-        doc:Heading("Folk met here (" .. #people .. ")")
+        doc:Heading(L["Folk met here (%d)"]:format(#people))
         for i = 1, math.min(#people, LIST_MAX) do
             local n = people[i]
             local roles = ns.RoleText(n)
             doc:Line(UI.NpcLink(npcID[n]) .. (n.title and (", " .. n.title) or "")
                 .. (roles ~= "" and ("  |cff6b5d4f" .. roles .. "|r") or ""))
         end
-        More(doc, LIST_MAX, #people, "People")
+        More(doc, LIST_MAX, #people, L["People"])
     end
 
     local done, open = {}, {}
@@ -337,19 +338,19 @@ function Page:RenderZone(name)
     local quests = ns.db.quests
     if #open > 0 then
         table.sort(open, function(a, b) return (quests[a].accepted or 0) > (quests[b].accepted or 0) end)
-        doc:Heading("Quests still open from here (" .. #open .. ")")
+        doc:Heading(L["Quests still open from here (%d)"]:format(#open))
         for i = 1, math.min(#open, LIST_MAX) do
             doc:Line(UI.QuestLink(open[i]))
         end
-        More(doc, LIST_MAX, #open, "Quests")
+        More(doc, LIST_MAX, #open, L["Quests"])
     end
     if #done > 0 then
         table.sort(done, function(a, b) return quests[a].completed > quests[b].completed end)
-        doc:Heading("Quests completed here (" .. #done .. ")")
+        doc:Heading(L["Quests completed here (%d)"]:format(#done))
         for i = 1, math.min(#done, LIST_MAX) do
             doc:Line(UI.QuestLink(done[i]))
         end
-        More(doc, LIST_MAX, #done, "Quests")
+        More(doc, LIST_MAX, #done, L["Quests"])
     end
 
     -- Rares and elites met or slain here; then everything you've hunted here, most first.
@@ -363,24 +364,24 @@ function Page:RenderZone(name)
     end
     if #notable > 0 then
         table.sort(notable, function(a, b) return (a.m.name or "") < (b.m.name or "") end)
-        doc:Heading("Notable foes")
+        doc:Heading(L["Notable foes"])
         for _, e in ipairs(notable) do
             doc:Line(string.format("%s  |cff6b5d4f%s, %s|r", UI.MobLink(e.id, e.m.name), NOTABLE[e.m.classification],
-                e.n > 0 and ("slain x" .. e.n) or "not slain"))
+                e.n > 0 and L["slain x%d"]:format(e.n) or L["not slain"]))
         end
     end
     if #mobs > 0 then
         table.sort(mobs, function(a, b) return a.n > b.n end)
-        doc:Heading("Most hunted here")
+        doc:Heading(L["Most hunted here"])
         for i = 1, math.min(#mobs, 12) do
             doc:Line(string.format("%s  x%d", UI.MobLink(mobs[i].id, mobs[i].name), mobs[i].n))
         end
     end
 
     if #deaths > 0 then
-        doc:Heading("Fallen here")
+        doc:Heading(L["Fallen here"])
         for _, d in ipairs(deaths) do
-            doc:Line(string.format("%s at level %d, %s", d.killer and ("Slain by " .. d.killer) or "Died",
+            doc:Line(string.format(L["%s at level %d, %s"], d.killer and L["Slain by %s"]:format(d.killer) or L["Died"],
                 d.level or 0, ns.Date(d.time)), UI.ACCENT)
         end
     end

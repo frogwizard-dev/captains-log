@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local UI = ns.UI
 
 -- Captain's Log on the game's own world map. A Map button "projects" an entry (a quest, a
@@ -41,7 +42,7 @@ local function QuestFoePins(q, pins)
         for _, f in ipairs(ns.ObjectiveFoes(q, i)) do
             if not seen[f.id] then
                 seen[f.id] = true
-                AddSpots(pins, f.mob, (f.mob.name or "?") .. (f.item and (", drops " .. f.item) or ""))
+                AddSpots(pins, f.mob, f.item and L["%s, drops %s"]:format(f.mob.name or "?", f.item) or (f.mob.name or "?"))
             end
         end
     end
@@ -49,9 +50,9 @@ end
 
 local function QuestPeoplePins(q, pins)
     local m, x, y = ns.QuestStart(q)
-    if m then pins[#pins + 1] = { m, x, y, "start", "Quest giver" .. (NpcName(q.giver) and (": " .. NpcName(q.giver)) or "") } end
+    if m then pins[#pins + 1] = { m, x, y, "start", NpcName(q.giver) and L["Quest giver: %s"]:format(NpcName(q.giver)) or L["Quest giver"] } end
     m, x, y = ns.QuestFinish(q)
-    if m then pins[#pins + 1] = { m, x, y, "finish", "Handed in" .. (NpcName(q.turnInNpc) and (" to " .. NpcName(q.turnInNpc)) or "") } end
+    if m then pins[#pins + 1] = { m, x, y, "finish", NpcName(q.turnInNpc) and L["Handed in to %s"]:format(NpcName(q.turnInNpc)) or L["Handed in"] } end
 end
 
 builders.questgiver = function(id)
@@ -59,7 +60,7 @@ builders.questgiver = function(id)
     if not q then return end
     local pins = {}
     QuestPeoplePins(q, pins)
-    return (q.title or ("Quest #" .. id)) .. " (quest giver)", "quests", pins
+    return L["%s (quest giver)"]:format(q.title or L["Quest #%s"]:format(id)), "quests", pins
 end
 
 builders.questfoes = function(id)
@@ -67,7 +68,7 @@ builders.questfoes = function(id)
     if not q then return end
     local pins = {}
     QuestFoePins(q, pins)
-    return (q.title or ("Quest #" .. id)) .. " (creatures)", "quests", pins
+    return L["%s (creatures)"]:format(q.title or L["Quest #%s"]:format(id)), "quests", pins
 end
 
 -- Both at once: how 0.4.0 pinned quests, kept so those saved pins still show (and remove).
@@ -77,7 +78,7 @@ builders.quest = function(id)
     local pins = {}
     QuestFoePins(q, pins)
     QuestPeoplePins(q, pins)
-    return q.title or ("Quest #" .. id), "quests", pins
+    return q.title or L["Quest #%s"]:format(id), "quests", pins
 end
 
 builders.mob = function(id)
@@ -85,14 +86,14 @@ builders.mob = function(id)
     if not m then return end
     local pins = {}
     AddSpots(pins, m, m.name or "?")
-    return m.name or "Unknown creature", "bestiary", pins
+    return m.name or L["Unknown creature"], "bestiary", pins
 end
 
 builders.npc = function(id)
     local n = ns.db.npcs[id]
     if not n or not n.mapID then return end
-    return n.name or "Someone", "people",
-        { { n.mapID, n.x, n.y, "npc", (n.name or "?") .. (n.title and (", " .. n.title) or "") } }
+    return n.name or L["Someone"], "people",
+        { { n.mapID, n.x, n.y, "npc", n.title and L["%s, %s"]:format(n.name or "?", n.title) or (n.name or "?") } }
 end
 
 -- The wedge a picture looked across, on its own map: from the spot, the way you faced, as wide
@@ -115,11 +116,11 @@ end
 builders.photo = function(t)
     local p, day = ns.FindPhoto(t)
     if not p or not p.mapID or not p.x then return end
-    local where = (p.place and p.zone and p.place ~= p.zone) and (p.place .. ", " .. p.zone) or p.place or p.zone or "a picture"
-    local title = p.caption or ("Picture at " .. where)
+    local where = (p.place and p.zone and p.place ~= p.zone) and L["%s, %s"]:format(p.place, p.zone) or p.place or p.zone or L["a picture"]
+    local title = p.caption or L["Picture at %s"]:format(where)
     local pins = {}
     if p.facing then pins[#pins + 1] = { p.mapID, p.x, p.y, "cone", title, points = ConePoints(p) } end
-    pins[#pins + 1] = { p.mapID, p.x, p.y, "place", title .. ", " .. date("%d %b, %H:%M", p.t) }
+    pins[#pins + 1] = { p.mapID, p.x, p.y, "place", L["%s, %s"]:format(title, date(L["%d %b, %H:%M"], p.t)) }
     return title, "log", pins, "photos:" .. day
 end
 
@@ -129,16 +130,16 @@ builders.zone = function(name)
     local pins = {}
     for _, n in pairs(ns.db.npcs) do
         if n.zone == name and n.mapID and next(n.roles) then
-            pins[#pins + 1] = { n.mapID, n.x, n.y, "npc", (n.name or "?") .. (n.title and (", " .. n.title) or "") }
+            pins[#pins + 1] = { n.mapID, n.x, n.y, "npc", n.title and L["%s, %s"]:format(n.name or "?", n.title) or (n.name or "?") }
         end
     end
     for _, d in ipairs(ns.db.deaths) do
         if d.zone == name and d.mapID then
-            pins[#pins + 1] = { d.mapID, d.x, d.y, "death", (d.killer and ("Slain by " .. d.killer) or "Died") .. ", " .. ns.Date(d.time) }
+            pins[#pins + 1] = { d.mapID, d.x, d.y, "death", L["%s, %s"]:format(d.killer and L["Slain by %s"]:format(d.killer) or L["Died"], ns.Date(d.time)) }
         end
     end
     for place, p in pairs(z.places or {}) do
-        if p.mapID then pins[#pins + 1] = { p.mapID, p.x, p.y, "place", place .. ", found " .. ns.Date(p.t) } end
+        if p.mapID then pins[#pins + 1] = { p.mapID, p.x, p.y, "place", L["%s, found %s"]:format(place, ns.Date(p.t)) } end
     end
     return name, "zones", pins
 end
@@ -150,8 +151,8 @@ local function FishPins(pins, zone, place, spot, label, sel)
     for _, p in ipairs(spot.pts or {}) do
         local casts, pooled = p[3] or 1, p[4] or 0
         pins[#pins + 1] = { spot.mapID, p[1], p[2], pooled * 2 > casts and "pool" or "fish", label,
-            note = string.format("Fished here %d %s%s", casts, casts == 1 and "time" or "times",
-                pooled > 0 and string.format(", %d into a pool", pooled) or ""),
+            note = string.format(L["Fished here %d %s%s"], casts, casts == 1 and L["time"] or L["times"],
+                pooled > 0 and string.format(L[", %d into a pool"], pooled) or ""),
             sel = sel or ns.FishSpotKey(zone, place) }
     end
 end
@@ -165,11 +166,11 @@ builders.fish = function(id)
         for place, spot in pairs(places) do
             local s = spot.items[id]
             if s then
-                FishPins(pins, zone, place, spot, string.format("%s: %d at %s", e.name or "?", s.n, ns.FishSpotName(zone, place)))
+                FishPins(pins, zone, place, spot, string.format(L["%s: %d at %s"], e.name or "?", s.n, ns.FishSpotName(zone, place)))
             end
         end
     end
-    return e.name or "A catch", "fishing", pins, id
+    return e.name or L["A catch"], "fishing", pins, id
 end
 
 -- One fishing spot (by its key).
@@ -178,7 +179,7 @@ builders.fishspot = function(key)
     if not spot then return end
     local pins = {}
     FishPins(pins, zone, place, spot, ns.FishSpotName(zone, place))
-    return ns.FishSpotName(zone, place) .. " (fishing)", "fishing", pins, key
+    return L["%s (fishing)"]:format(ns.FishSpotName(zone, place)), "fishing", pins, key
 end
 
 -- Every spot you've fished from: shown by a setting rather than a Map button (FISH_LAYER).
@@ -189,7 +190,7 @@ builders.fishing = function()
             FishPins(pins, zone, place, spot, ns.FishSpotName(zone, place))
         end
     end
-    return "Fishing spots", "fishing", pins
+    return L["Fishing spots"], "fishing", pins
 end
 local FISH_LAYER = { kind = "fishing", id = "all" }
 
@@ -248,11 +249,11 @@ function pinMixin:OnMouseEnter()
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText(d.label)
     if d.note then GameTooltip:AddLine(d.note, 1, 1, 1) end
-    GameTooltip:AddLine("Captain's Log: " .. d.title, 0.85, 0.75, 0.55)
+    GameTooltip:AddLine(L["Captain's Log: %s"]:format(d.title), 0.85, 0.75, 0.55)
     -- Hunting areas let left-clicks through to the map, so only the dots open the book.
-    if not d.area then GameTooltip:AddLine("Click to open it in the book", 0.6, 0.6, 0.6) end
-    GameTooltip:AddLine("Right-click to remove these pins", 0.6, 0.6, 0.6)
-    GameTooltip:AddLine("Shift-right-click to remove all of the book's pins", 0.6, 0.6, 0.6)
+    if not d.area then GameTooltip:AddLine(L["Click to open it in the book"], 0.6, 0.6, 0.6) end
+    GameTooltip:AddLine(L["Right-click to remove these pins"], 0.6, 0.6, 0.6)
+    GameTooltip:AddLine(L["Shift-right-click to remove all of the book's pins"], 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end
 
@@ -491,7 +492,7 @@ local function AddAreas(map, spots, base)
         for i, p in ipairs(hull) do shape[i] = { p[1] - minX, p[2] - minY } end
         map:AcquirePin(AREA_TEMPLATE, {
             area = true, label = base.label, title = base.title, page = base.page, layer = base.layer,
-            sel = base.sel, note = #g .. (#g == 1 and " slain here" or " slain in this area"),
+            sel = base.sel, note = (#g == 1 and L["%d slain here"] or L["%d slain in this area"]):format(#g),
             alpha = 0.16 + 0.22 * (#g / most),
             hull = shape, w = maxX - minX, h = maxY - minY,
         }, (minX + maxX) / 2 / W, (minY + maxY) / 2 / H)
@@ -520,7 +521,7 @@ local function AddCone(map, mapID, p, base)
     for i, q in ipairs(hull) do shape[i] = { q[1] - minX, q[2] - minY } end
     map:AcquirePin(AREA_TEMPLATE, {
         area = true, label = base.label, title = base.title, page = base.page, layer = base.layer, sel = base.sel,
-        note = "What the picture looked at", alpha = 0.3, color = UI.PIN.place,
+        note = L["What the picture looked at"], alpha = 0.3, color = UI.PIN.place,
         hull = shape, w = math.max(1, maxX - minX), h = math.max(1, maxY - minY),
     }, (minX + maxX) / 2 / W, (minY + maxY) / 2 / H)
 end
@@ -578,7 +579,7 @@ function provider:RefreshAllData()
                 local base = { label = label, title = title, page = page, layer = layer, sel = sel }
                 if not (#spots > AREA_MIN and AddAreas(map, spots, base)) then
                     for _, s in ipairs(spots) do
-                        map:AcquirePin(TEMPLATE, { kind = "kill", label = label, note = "Slain here",
+                        map:AcquirePin(TEMPLATE, { kind = "kill", label = label, note = L["Slain here"],
                             title = title, page = page, layer = layer, sel = sel }, s[1], s[2])
                     end
                 end
@@ -641,12 +642,12 @@ end
 -- Pins an entry and opens the world map on mapID (where the pins you asked to see are).
 function MapPins.Show(kind, id, mapID)
     if not MapPins.ready then
-        ns.Print("The world map isn't available to the book right now.")
+        ns.Print(L["The world map isn't available to the book right now."])
         return
     end
     if not Find(kind, id) then table.insert(ns.db.mapLayers, { kind = kind, id = id }) end
     if not MapPins.Open(mapID) then
-        ns.Print("Pinned to your map; open it once the fight is over.")
+        ns.Print(L["Pinned to your map; open it once the fight is over."])
     end
 end
 
@@ -654,7 +655,7 @@ function MapPins.Remove(kind, id)
     -- Your fishing spots come from a setting, so removing them switches it off.
     if kind == FISH_LAYER.kind then
         ns.db.settings.fishPins = false
-        ns.Print("Took your fishing spots off your map (Settings can show them again).")
+        ns.Print(L["Took your fishing spots off your map (Settings can show them again)."])
         Refresh()
         return
     end
@@ -663,14 +664,14 @@ function MapPins.Remove(kind, id)
     local ok, title = false, nil
     if builders[kind] then ok, title = pcall(builders[kind], id) end
     table.remove(ns.db.mapLayers, i)
-    ns.Print("Took " .. ((ok and title) or "those pins") .. " off your map.")
+    ns.Print(L["Took %s off your map."]:format((ok and title) or L["those pins"]))
     Refresh()
 end
 
 function MapPins.Clear()
     wipe(ns.db.mapLayers)
     ns.db.settings.fishPins = false
-    ns.Print("Took all of the book's pins off your map.")
+    ns.Print(L["Took all of the book's pins off your map."])
     Refresh()
 end
 

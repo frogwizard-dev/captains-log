@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local issecret = ns.issecret
 
 -- The fishing journal. Every loot window the game marks as fishing loot (IsFishingLoot) is one
@@ -26,7 +27,7 @@ local MAX_POINTS = 16             -- spots on the map kept per place
 local NEAR = 0.006                -- casts closer than this (share of the map) share one spot
 local LOG_GAP = 900               -- a catch this soon after the last one adds to its log line
 local MILESTONE = 25
-local UNKNOWN = "Unknown waters"
+local UNKNOWN = L["Unknown waters"]
 
 -- The journal's tables, made whole again after "Erase this character's log" (which empties
 -- the top-level table).
@@ -341,7 +342,7 @@ local function ReadCatch()
     if ns.db.settings.announce then
         for _, id in ipairs(firsts) do
             local e = Data().items[id]
-            ns.Print("New catch: " .. (e.link or e.name or ("item " .. id)))
+            ns.Print(L["New catch: %s"]:format(e.link or e.name or L["item %s"]:format(id)))
         end
     end
     return true

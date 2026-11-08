@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local issecret = ns.issecret
 
 -- The People directory: friendly NPCs you've met. Mousing over or targeting one records its

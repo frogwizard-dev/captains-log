@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 
 -- Adds your history with a creature to its tooltip: "Killed 27 · last 2d ago".
 if TooltipDataProcessor and Enum.TooltipDataType then
@@ -10,14 +11,14 @@ if TooltipDataProcessor and Enum.TooltipDataType then
 
         local line
         if m.kills > 0 then
-            line = "Killed " .. ns.Number(m.kills)
-            if m.lastKill then line = line .. "  ·  last " .. ns.Ago(m.lastKill) end
+            line = L["Killed %s"]:format(ns.Number(m.kills))
+            if m.lastKill then line = line .. L["  ·  last %s"]:format(ns.Ago(m.lastKill)) end
         else
-            line = "Met, never slain"
+            line = L["Met, never slain"]
         end
-        tooltip:AddLine("|cffd8b56aCaptain's Log:|r " .. line, 0.9, 0.85, 0.7)
+        tooltip:AddLine("|cffd8b56a" .. L["Captain's Log:"] .. "|r " .. line, 0.9, 0.85, 0.7)
         if m.killedMe > 0 then
-            tooltip:AddLine("Has killed you " .. m.killedMe .. (m.killedMe == 1 and " time" or " times"), 1, 0.45, 0.4)
+            tooltip:AddLine((m.killedMe == 1 and L["Has killed you %d time"] or L["Has killed you %d times"]):format(m.killedMe), 1, 0.45, 0.4)
         end
     end)
 end

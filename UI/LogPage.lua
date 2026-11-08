@@ -1,19 +1,20 @@
 local _, ns = ...
+local L = ns.L
 local UI = ns.UI
 
-local Page = { label = "Log", color = { 0.55, 0.12, 0.08 }, order = 1 }
+local Page = { label = L["Log"], color = { 0.55, 0.12, 0.08 }, order = 1 }
 ns.Pages.log = Page
 
-local CLASSIFICATION = { rare = "rare", rareelite = "rare elite", elite = "elite", worldboss = "boss" }
+local CLASSIFICATION = { rare = L["rare"], rareelite = L["rare elite"], elite = L["elite"], worldboss = L["boss"] }
 
 function Page:Build(left, right)
     local W, H = ns.Book.CONTENT_W, ns.Book.CONTENT_H
-    self.sub = ns.Book:Header(left, "Captain's Log")
+    self.sub = ns.Book:Header(left, L["Captain's Log"])
     self.view = "timeline"
 
     -- Summary (the day in numbers), Timeline (the day line by line) or its Pictures.
     self.viewButtons = {}
-    for i, v in ipairs({ { "summary", "Summary" }, { "timeline", "Timeline" }, { "photos", "Pictures" } }) do
+    for i, v in ipairs({ { "summary", L["Summary"] }, { "timeline", L["Timeline"] }, { "photos", L["Pictures"] } }) do
         local b = UI.Button(left, v[2], 110)
         b:SetPoint("TOPLEFT", (i - 1) * 116, -62)
         b:SetScript("OnClick", function()
@@ -32,7 +33,7 @@ function Page:Build(left, right)
     -- Your own words for the day, saved as you type.
     local label = UI.Text(right, 14, UI.ACCENT, UI.HEADING_FONT)
     label:SetPoint("BOTTOMLEFT", 0, 84)
-    label:SetText("Your notes")
+    label:SetText(L["Your notes"])
     local box = CreateFrame("Frame", nil, right, "BackdropTemplate")
     box:SetPoint("BOTTOMLEFT")
     box:SetPoint("BOTTOMRIGHT")
@@ -59,7 +60,7 @@ function Page:Build(left, right)
     self.note = note
 
     -- A picture for today's page (the book steps out of shot); see Photos.lua.
-    local camera = UI.Button(right, "Take a picture", 120, 20)
+    local camera = UI.Button(right, L["Take a picture"], 120, 20)
     camera:SetPoint("BOTTOMRIGHT", box, "TOPRIGHT", 0, 3)
     camera:SetScript("OnClick", function()
         self.view = "photos"
@@ -97,8 +98,8 @@ function Page:Render()
     end
 
     local days, played = DayTotals()
-    self.sub:SetText(string.format("%s, level %d %s  ·  %d %s, %s played",
-        UnitName("player"), UnitLevel("player"), UnitClass("player"), days, days == 1 and "day" or "days",
+    self.sub:SetText(string.format(L["%s, level %d %s  ·  %d %s, %s played"],
+        UnitName("player"), UnitLevel("player"), UnitClass("player"), days, days == 1 and L["day"] or L["days"],
         ns.Duration(played)))
 
     local items = {}
@@ -106,8 +107,8 @@ function Page:Render()
         local d = ns.db.days[key]
         items[#items + 1] = {
             key = key,
-            left = date("%a %d %b %Y", ns.DayTime(key)),
-            right = string.format("%s  ·  %d kills", ns.Duration(d.played), d.kills),
+            left = date(L["%a %d %b %Y"], ns.DayTime(key)),
+            right = string.format(L["%s  ·  %d kills"], ns.Duration(d.played), d.kills),
         }
     end
     self.list:SetItems(items, self.selected, function(key)
@@ -138,20 +139,20 @@ local UNIQUE = { rare = true, rareelite = true, worldboss = true }
 
 -- "a Cursed Darkhound", "an Ogre", but "Hogger" for rares and bosses (they're named).
 local function Called(name, classification)
-    if not name then return "an unknown creature" end
+    if not name then return L["an unknown creature"] end
     if UNIQUE[classification] then return name end
-    return (name:match("^[AEIOUaeiou]") and "an " or "a ") .. name
+    return (name:match("^[AEIOUaeiou]") and L["an %s"] or L["a %s"]):format(name)
 end
 
 local function JoinList(parts)
     if #parts <= 1 then return parts[1] or "" end
-    return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
+    return L["%s and %s"]:format(table.concat(parts, ", ", 1, #parts - 1), parts[#parts])
 end
 
 local function LootText(loot)
     local parts = {}
     for _, l in ipairs(loot) do
-        local link = l.link or select(2, C_Item.GetItemInfo(l.itemID)) or ("item " .. l.itemID)
+        local link = l.link or select(2, C_Item.GetItemInfo(l.itemID)) or L["item %s"]:format(l.itemID)
         parts[#parts + 1] = l.qty .. " " .. UI.Ink(link)
     end
     return JoinList(parts)
@@ -160,7 +161,7 @@ end
 -- A catch's name from the fishing journal (or the item cache, if the journal was erased).
 local function CatchName(id)
     local e = ns.FishingData().items[id]
-    return (e and e.name) or C_Item.GetItemNameByID and C_Item.GetItemNameByID(id) or ("item " .. id)
+    return (e and e.name) or C_Item.GetItemNameByID and C_Item.GetItemNameByID(id) or L["item %s"]:format(id)
 end
 
 -- "Caught 12 fish at Auberdine, Darkshore (9 Raw Brilliant Smallfish, 2 ... and 1 ...), among
@@ -170,7 +171,7 @@ local function FishText(ev)
     for _, p in ipairs(ev.places or {}) do
         if p ~= ev.zone then places[#places + 1] = p end
     end
-    local where = #places > 0 and ("at " .. JoinList(places) .. ", " .. ev.zone) or ("in " .. ev.zone)
+    local where = #places > 0 and L["at %s, %s"]:format(JoinList(places), ev.zone) or L["in %s"]:format(ev.zone)
     local catch = {}
     for _, c in ipairs(ev.catch or {}) do catch[#catch + 1] = c end
     table.sort(catch, function(a, b) return a[2] > b[2] end)
@@ -179,106 +180,109 @@ local function FishText(ev)
         -- A single catch: "Caught a Firefin Snapper at ..., your first."
         local id = catch[1][1]
         local name = CatchName(id)
-        local article = name:match("^[AEIOUaeiou]") and "an " or "a "
-        if firsts[1] == id then return "Caught " .. article .. UI.FishLink(id, name) .. " " .. where .. ", your first." end
-        return "Caught " .. article .. name .. " " .. where .. "."
+        local vowel = name:match("^[AEIOUaeiou]")
+        if firsts[1] == id then
+            return (vowel and L["Caught an %s %s, your first."] or L["Caught a %s %s, your first."]):format(UI.FishLink(id, name), where)
+        end
+        return (vowel and L["Caught an %s %s."] or L["Caught a %s %s."]):format(name, where)
     end
     local parts = {}
     for i = 1, math.min(3, #catch) do parts[i] = catch[i][2] .. " " .. CatchName(catch[i][1]) end
-    if #catch > 3 then parts[#parts + 1] = (#catch - 3) .. (#catch == 4 and " other kind" or " other kinds") end
-    local s = string.format("Caught %d fish %s (%s)", ev.n, where, JoinList(parts))
+    if #catch > 3 then parts[#parts + 1] = (#catch == 4 and L["%d other kind"] or L["%d other kinds"]):format(#catch - 3) end
+    local s = string.format(L["Caught %d fish %s (%s)"], ev.n, where, JoinList(parts))
     if #firsts > 0 then
         -- Up to four named; a first day at the water would otherwise list everything twice.
         local links = {}
         for i = 1, math.min(4, #firsts) do links[i] = UI.FishLink(firsts[i], CatchName(firsts[i])) end
-        if #firsts > 4 then links[#links + 1] = (#firsts - 4) .. " more" end
-        s = s .. ", among them your first " .. JoinList(links)
+        if #firsts > 4 then links[#links + 1] = L["%d more"]:format(#firsts - 4) end
+        s = L["%s, among them your first %s"]:format(s, JoinList(links))
     end
     return s .. "."
 end
 
 local WRITERS = {
     kill = function(ev)
-        local tag = UNIQUE[ev.classification] and " (rare)" or (ev.classification == "elite" and " (elite)" or "")
+        local tag = UNIQUE[ev.classification] and L[" (rare)"] or (ev.classification == "elite" and L[" (elite)"] or "")
         -- Kills in dungeons are logged before the creature has a name; the bestiary fills it in later.
         local mob = ns.db.mobs[ev.id]
         local name = ev.name or (mob and mob.name)
         local s
         if ev.n == 1 then
-            s = "Slew " .. Called(name, ev.classification) .. tag
-            if ev.loot then s = s .. " and took " .. LootText(ev.loot) .. " from it" end
+            s = L["Slew %s%s"]:format(Called(name, ev.classification), tag)
+            if ev.loot then s = L["%s and took %s from it"]:format(s, LootText(ev.loot)) end
         else
-            s = string.format("Slew %s x%d%s", name or "unknown creatures", ev.n, tag)
-            if ev.loot then s = s .. ", taking " .. LootText(ev.loot) end
+            s = string.format(L["Slew %s x%d%s"], name or L["unknown creatures"], ev.n, tag)
+            if ev.loot then s = L["%s, taking %s"]:format(s, LootText(ev.loot)) end
         end
         return s .. "."
     end,
     meet = function(ev)
-        return "Encountered " .. JoinList(ev.names) .. " for the first time."
+        return L["Encountered %s for the first time."]:format(JoinList(ev.names))
     end,
     zone = function(ev)
-        if ev.new then return "Set foot in " .. ev.zone .. " for the first time." end
-        return "Travelled to " .. ev.zone .. "."
+        if ev.new then return L["Set foot in %s for the first time."]:format(ev.zone) end
+        return L["Travelled to %s."]:format(ev.zone)
     end,
     place = function(ev)
-        return "Came upon " .. JoinList(ev.places) .. " in " .. ev.zone .. "."
+        return L["Came upon %s in %s."]:format(JoinList(ev.places), ev.zone)
     end,
     accept = function(ev)
-        return string.format('Accepted "%s".', ev.title or ("quest #" .. ev.questID))
+        return string.format(L['Accepted "%s".'], ev.title or L["quest #%s"]:format(ev.questID))
     end,
     abandon = function(ev)
-        return string.format('Abandoned "%s".', ev.title or ("quest #" .. ev.questID))
+        return string.format(L['Abandoned "%s".'], ev.title or L["quest #%s"]:format(ev.questID))
     end,
     quest = function(ev)
         local rewards = {}
-        if ev.xp and ev.xp > 0 then rewards[#rewards + 1] = "+" .. ns.Number(ev.xp) .. " xp" end
+        if ev.xp and ev.xp > 0 then rewards[#rewards + 1] = L["+%s xp"]:format(ns.Number(ev.xp)) end
         if ev.money and ev.money > 0 then rewards[#rewards + 1] = ns.Money(ev.money) end
-        local s = string.format('Completed "%s"', ev.title or ("quest #" .. ev.questID))
+        local s = string.format(L['Completed "%s"'], ev.title or L["quest #%s"]:format(ev.questID))
         if #rewards > 0 then s = s .. " (" .. table.concat(rewards, ", ") .. ")" end
         return s .. "."
     end,
     level = function(ev)
-        return "|cff7a1f0dReached level " .. ev.level .. "!|r"
+        return "|cff7a1f0d" .. L["Reached level %s!"]:format(ev.level) .. "|r"
     end,
     death = function(ev)
-        if ev.killer then return "|cff7a1f0dWas slain by " .. Called(ev.killer, ev.classification) .. ".|r" end
-        return "|cff7a1f0dDied.|r"
+        if ev.killer then return "|cff7a1f0d" .. L["Was slain by %s."]:format(Called(ev.killer, ev.classification)) .. "|r" end
+        return "|cff7a1f0d" .. L["Died."] .. "|r"
     end,
     dungeon = function(ev)
-        if ev.returning then return "Returned to " .. ev.name .. "." end
-        local s = "Entered " .. ev.name
+        if ev.returning then return L["Returned to %s."]:format(ev.name) end
+        local s = L["Entered %s"]:format(ev.name)
         if ev.difficulty and ev.difficulty ~= "" then s = s .. " (" .. ev.difficulty .. ")" end
-        if ev.group and #ev.group > 0 then s = s .. " with " .. JoinList(ev.group) end
+        if ev.group and #ev.group > 0 then s = L["%s with %s"]:format(s, JoinList(ev.group)) end
         return s .. "."
     end,
     dungeonLeave = function(ev)
-        local bosses = ev.total and string.format("%d/%d bosses", ev.bosses, ev.total)
-            or (ev.bosses .. (ev.bosses == 1 and " boss" or " bosses"))
-        return string.format("Left %s after %s, %s down.", ev.name, ns.Duration(ev.duration), bosses)
+        local bosses = ev.total and string.format(L["%d/%d bosses"], ev.bosses, ev.total)
+            or (ev.bosses == 1 and L["%d boss"] or L["%d bosses"]):format(ev.bosses)
+        return string.format(L["Left %s after %s, %s down."], ev.name, ns.Duration(ev.duration), bosses)
     end,
     boss = function(ev)
-        local s = "|cff7a1f0dDefeated " .. ev.name .. "|r"
-        if ev.duration then s = s .. " in " .. ns.Short(ev.duration) end
+        local s = "|cff7a1f0d" .. L["Defeated %s"]:format(ev.name) .. "|r"
+        if ev.duration then s = L["%s in %s"]:format(s, ns.Short(ev.duration)) end
         if ev.wipes and ev.wipes > 0 then
-            s = s .. string.format(" after %d %s", ev.wipes, ev.wipes == 1 and "wipe" or "wipes")
+            s = s .. string.format(L[" after %d %s"], ev.wipes, ev.wipes == 1 and L["wipe"] or L["wipes"])
         end
         return s .. "!"
     end,
     wipe = function(ev)
-        return "The group wiped on " .. ev.name .. "."
+        return L["The group wiped on %s."]:format(ev.name)
     end,
     npc = function(ev)
-        return "Met " .. ev.name .. (ev.title and (", " .. ev.title) or "") .. "."
+        return ev.title and L["Met %s, %s."]:format(ev.name, ev.title) or L["Met %s."]:format(ev.name)
     end,
     fish = FishText,
     fishskill = function(ev)
-        return "|cff7a1f0dYour fishing skill reached " .. ev.rank .. "!|r"
+        return "|cff7a1f0d" .. L["Your fishing skill reached %s!"]:format(ev.rank) .. "|r"
     end,
     photo = function(ev, key)
         local p = ns.FindPhoto(ev.photoT)
         if not p then return nil end -- removed from the journal
         local where = ev.place or ev.zone
-        local s = "Took " .. UI.Link("a picture", "photos", key) .. (where and (" at " .. where) or "")
+        local link = UI.Link(L["a picture"], "photos", key)
+        local s = where and L["Took %s at %s"]:format(link, where) or L["Took %s"]:format(link)
         if p.caption then s = s .. ': "' .. p.caption .. '"' end
         return s .. "."
     end,
@@ -288,9 +292,9 @@ function Page:RenderTimeline(key)
     local d = ns.Day(key)
     local doc = self.doc
     doc:Clear("timeline:" .. key)
-    doc:Title(date("%A, %d %B %Y", ns.DayTime(key)))
+    doc:Title(date(L["%A, %d %B %Y"], ns.DayTime(key)))
     if #d.events == 0 then
-        doc:Faded("Nothing written for this day yet.")
+        doc:Faded(L["Nothing written for this day yet."])
     end
     for _, ev in ipairs(d.events) do
         local write = WRITERS[ev.k]
@@ -307,21 +311,21 @@ function Page:RenderDay(key)
     local d = ns.Day(key)
     local doc = self.doc
     doc:Clear("summary:" .. key)
-    doc:Title(date("%A, %d %B %Y", ns.DayTime(key)))
+    doc:Title(date(L["%A, %d %B %Y"], ns.DayTime(key)))
 
-    doc:Line("Played " .. ns.Duration(d.played))
-    if d.xp > 0 then doc:Line("Experience gained: " .. ns.Number(d.xp)) end
-    if d.kills > 0 then doc:Line("Creatures slain: " .. ns.Number(d.kills)) end
-    if d.discovered > 0 then doc:Line("New bestiary entries: " .. d.discovered) end
-    if (d.fish or 0) > 0 then doc:Line("Fish caught: " .. ns.Number(d.fish)) end
-    if d.moneyIn > 0 then doc:Line("Coin earned: " .. ns.Money(d.moneyIn)) end
-    if d.moneyOut > 0 then doc:Line("Coin spent: " .. ns.Money(d.moneyOut)) end
+    doc:Line(L["Played %s"]:format(ns.Duration(d.played)))
+    if d.xp > 0 then doc:Line(L["Experience gained: %s"]:format(ns.Number(d.xp))) end
+    if d.kills > 0 then doc:Line(L["Creatures slain: %s"]:format(ns.Number(d.kills))) end
+    if d.discovered > 0 then doc:Line(L["New bestiary entries: %s"]:format(d.discovered)) end
+    if (d.fish or 0) > 0 then doc:Line(L["Fish caught: %s"]:format(ns.Number(d.fish))) end
+    if d.moneyIn > 0 then doc:Line(L["Coin earned: %s"]:format(ns.Money(d.moneyIn))) end
+    if d.moneyOut > 0 then doc:Line(L["Coin spent: %s"]:format(ns.Money(d.moneyOut))) end
 
     if #d.levels > 0 then
-        doc:Heading("Milestones")
+        doc:Heading(L["Milestones"])
         for _, level in ipairs(d.levels) do
             local info = ns.db.levels[level]
-            doc:Line("Reached level " .. level .. (info and info.zone and (" in " .. info.zone) or ""))
+            doc:Line(info and info.zone and L["Reached level %s in %s"]:format(level, info.zone) or L["Reached level %s"]:format(level))
         end
     end
 
@@ -330,22 +334,22 @@ function Page:RenderDay(key)
         if date("%Y-%m-%d", run.start) == key then runs[#runs + 1] = run end
     end
     if #runs > 0 then
-        doc:Heading("Dungeons & raids")
+        doc:Heading(L["Dungeons & raids"])
         for _, run in ipairs(runs) do
             doc:Line(string.format("%s: %s, %s", run.name, ns.Duration(ns.RunDuration(run)), ns.RunBossText(run)))
         end
     end
 
     if #d.zones > 0 then
-        doc:Heading("New lands")
+        doc:Heading(L["New lands"])
         for _, zone in ipairs(d.zones) do doc:Line(zone) end
     end
 
     if #d.quests > 0 then
-        doc:Heading("Quests completed (" .. #d.quests .. ")")
+        doc:Heading(L["Quests completed (%d)"]:format(#d.quests))
         for _, questID in ipairs(d.quests) do
             local q = ns.db.quests[questID]
-            doc:Line(q and q.title or ("Quest #" .. questID))
+            doc:Line(q and q.title or L["Quest #%s"]:format(questID))
         end
     end
 
@@ -353,7 +357,7 @@ function Page:RenderDay(key)
     for _, n in pairs(d.notable) do notable[#notable + 1] = n end
     if #notable > 0 then
         table.sort(notable, function(a, b) return a.first < b.first end)
-        doc:Heading("Notable foes")
+        doc:Heading(L["Notable foes"])
         for _, n in ipairs(notable) do
             local what = CLASSIFICATION[n.classification] or n.classification
             doc:Line(string.format("%s (%s)%s", n.name or "?", what, n.count > 1 and ("  x" .. n.count) or ""))
@@ -361,21 +365,21 @@ function Page:RenderDay(key)
     end
 
     if #d.loot > 0 then
-        doc:Heading("Treasures")
+        doc:Heading(L["Treasures"])
         for _, item in ipairs(d.loot) do doc:Item(item.link) end
     end
 
     if #d.deaths > 0 then
-        doc:Heading("Deaths")
+        doc:Heading(L["Deaths"])
         for _, death in ipairs(d.deaths) do
-            doc:Line(string.format("%s at level %d%s", death.killer and ("Slain by " .. death.killer) or "Died",
-                death.level or 0, death.zone and (" in " .. death.zone) or ""), UI.ACCENT)
+            doc:Line(string.format(L["%s at level %d%s"], death.killer and L["Slain by %s"]:format(death.killer) or L["Died"],
+                death.level or 0, death.zone and L[" in %s"]:format(death.zone) or ""), UI.ACCENT)
         end
     end
 
     if d.played < 60 and d.kills == 0 and #d.quests == 0 then
         doc:Gap()
-        doc:Faded("A quiet day. The pages are still blank.")
+        doc:Faded(L["A quiet day. The pages are still blank."])
     end
     doc:Finish()
 end
@@ -389,7 +393,7 @@ local function EditBoxOf(dialog)
 end
 
 StaticPopupDialogs.CAPTAINSLOG_CAPTION = {
-    text = "A caption for this picture:",
+    text = L["A caption for this picture:"],
     button1 = ACCEPT, button2 = CANCEL,
     hasEditBox = true, maxLetters = 140, enterClicksFirstButton = true,
     OnShow = function(dialog, photo)
@@ -409,8 +413,8 @@ StaticPopupDialogs.CAPTAINSLOG_CAPTION = {
 }
 
 StaticPopupDialogs.CAPTAINSLOG_REMOVE_PHOTO = {
-    text = "Take this picture out of the journal?\nThe screenshot file itself stays where it is.",
-    button1 = REMOVE or "Remove", button2 = CANCEL,
+    text = L["Take this picture out of the journal?\nThe screenshot file itself stays where it is."],
+    button1 = REMOVE or L["Remove"], button2 = CANCEL,
     OnAccept = function(_, photo)
         local _, key, i = ns.FindPhoto(photo.t)
         if key then table.remove(ns.db.days[key].photos, i) end
@@ -421,8 +425,8 @@ StaticPopupDialogs.CAPTAINSLOG_REMOVE_PHOTO = {
 }
 
 local function Where(p)
-    if p.place and p.zone and p.place ~= p.zone then return p.place .. ", " .. p.zone end
-    return p.place or p.zone or "somewhere"
+    if p.place and p.zone and p.place ~= p.zone then return L["%s, %s"]:format(p.place, p.zone) end
+    return p.place or p.zone or L["somewhere"]
 end
 
 -- The spot a picture was taken, for its close-up map: the pin and, if known, the view cone.
@@ -442,7 +446,7 @@ function Page:PhotoFrame(p, x, y, w)
         self.doc:PlaceSpotMap(p.mapID, Spot(p), x, y, w, function() ns.MapPins.Show("photo", p.t, p.mapID) end)
         return true
     elseif path then
-        self.doc:PlacePicture(path, (p.caption or Where(p)) .. "  -  " .. date("%d %b %Y, %H:%M", p.t),
+        self.doc:PlacePicture(path, (p.caption or Where(p)) .. "  -  " .. date(L["%d %b %Y, %H:%M"], p.t),
             ns.PhotoAspect(p), x, y, w)
         return true
     end
@@ -461,38 +465,38 @@ function Page:PhotoCard(p)
     local w = doc.width - 8
     if self:PhotoFrame(p, 8, doc.y, w) then doc:Gap(w / 2 + 6) end
     local actions = {
-        { "Caption", icon = "Interface\\Icons\\INV_Inscription_Pigment_Bug01", tip = { "Caption", "Write a line about this picture." },
+        { L["Caption"], icon = "Interface\\Icons\\INV_Inscription_Pigment_Bug01", tip = { L["Caption"], L["Write a line about this picture."] },
             onClick = function() StaticPopup_Show("CAPTAINSLOG_CAPTION", nil, nil, p) end },
     }
     if pending then
-        table.insert(actions, { "Reload", icon = "Interface\\Icons\\INV_Misc_Spyglass_03",
-            tip = { "Reload", "The game only notices new pictures when the interface loads; this reloads it (/reload)." },
+        table.insert(actions, { L["Reload"], icon = "Interface\\Icons\\INV_Misc_Spyglass_03",
+            tip = { L["Reload"], L["The game only notices new pictures when the interface loads; this reloads it (/reload)."] },
             onClick = ReloadUI })
     end
     -- Only worth a button when there's a picture to swap with.
     if hasMap and path then
-        table.insert(actions, { self.mapOpen[p.t] and "Picture" or "Where", icon = "Interface\\Icons\\INV_Misc_Map_01",
-            tip = self.mapOpen[p.t] and { "Picture", "Back to the picture." }
-                or { "Where it was taken", "Shows a close-up map in place of the picture, with a cone for the way you were facing." },
+        table.insert(actions, { self.mapOpen[p.t] and L["Picture"] or L["Where"], icon = "Interface\\Icons\\INV_Misc_Map_01",
+            tip = self.mapOpen[p.t] and { L["Picture"], L["Back to the picture."] }
+                or { L["Where it was taken"], L["Shows a close-up map in place of the picture, with a cone for the way you were facing."] },
             onClick = function()
                 self.mapOpen[p.t] = not self.mapOpen[p.t]
                 self:Render()
             end })
     end
-    table.insert(actions, { "Remove", icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01",
-        tip = { "Remove", "Take this picture out of the journal (the screenshot file stays)." },
+    table.insert(actions, { L["Remove"], icon = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01",
+        tip = { L["Remove"], L["Take this picture out of the journal (the screenshot file stays)."] },
         onClick = function() StaticPopup_Show("CAPTAINSLOG_REMOVE_PHOTO", nil, nil, p) end })
-    doc:Row(p.caption and ('"' .. p.caption .. '"') or "|cff6b5d4fNo caption yet|r", actions)
+    doc:Row(p.caption and ('"' .. p.caption .. '"') or "|cff6b5d4f" .. L["No caption yet"] .. "|r", actions)
 
-    if pending then doc:Text("New picture: it shows after a /reload.", 11, UI.ACCENT, nil, 8) end
+    if pending then doc:Text(L["New picture: it shows after a /reload."], 11, UI.ACCENT, nil, 8) end
     if p.imported then
-        doc:Faded(date("%H:%M", p.t) .. ", from your Screenshots folder (taken before the book kept cards)")
+        doc:Faded(L["%s, from your Screenshots folder (taken before the book kept cards)"]:format(date("%H:%M", p.t)))
     else
-        doc:Faded(string.format("%s, %s, at level %d", date("%H:%M", p.t), where, p.level or 0))
-        if p.group then doc:Faded("With " .. table.concat(p.group, ", ")) end
-        if p.target then doc:Faded("Looking at " .. p.target) end
+        doc:Faded(string.format(L["%s, %s, at level %d"], date("%H:%M", p.t), where, p.level or 0))
+        if p.group then doc:Faded(L["With %s"]:format(table.concat(p.group, ", "))) end
+        if p.target then doc:Faded(L["Looking at %s"]:format(p.target)) end
     end
-    doc:Faded("File: Screenshots\\" .. p.file)
+    doc:Faded(L["File: Screenshots\\%s"]:format(p.file))
 end
 
 -- The day's pictures two to a row, each with its time and caption beneath; click one to see
@@ -508,7 +512,7 @@ function Page:PhotoGrid(photos)
         local x = 8 + col * (w + GRID_GAP)
         if self:PhotoFrame(p, x, doc.y, w) then
             local new = ns.db.settings.photosShow and ns.PhotoPending(p)
-            doc:Label(date("%H:%M", p.t) .. (new and "  new: /reload to see it" or (p.caption and ("  " .. p.caption) or "")),
+            doc:Label(date("%H:%M", p.t) .. (new and ("  " .. L["new: /reload to see it"]) or (p.caption and ("  " .. p.caption) or "")),
                 x, doc.y + w / 2 + 3, w, new and UI.ACCENT or nil)
             col = col + 1
             if col == 2 then
@@ -523,22 +527,21 @@ end
 -- Until pictures are set up: what the one step is, and a button to say it's done.
 function Page:PhotoSetup()
     local doc = self.doc
-    doc:Heading("See the pictures themselves", {
-        { "How?", icon = "Interface\\Icons\\INV_Misc_Note_01", tip = { "How to set up pictures",
-            "The steps, and the folder to open, in a small window." },
+    doc:Heading(L["See the pictures themselves"], {
+        { L["How?"], icon = "Interface\\Icons\\INV_Misc_Note_01", tip = { L["How to set up pictures"],
+            L["The steps, and the folder to open, in a small window."] },
             onClick = function() ns.ShowPictureSetup() end },
-        { "It's set up", icon = "Interface\\RaidFrame\\ReadyCheck-Ready", tip = { "Show the pictures",
-            "Once you've run the setup, this shows your screenshots in the book. (Also in Settings.)" },
+        { L["It's set up"], icon = "Interface\\RaidFrame\\ReadyCheck-Ready", tip = { L["Show the pictures"],
+            L["Once you've run the setup, this shows your screenshots in the book. (Also in Settings.)"] },
             onClick = function()
                 ns.db.settings.photosShow = true
                 ns.Refresh()
             end },
     })
-    doc:Line("The book can show your screenshots, but the game only reads files inside its own "
-        .. "folders. One step, once ever, links your Screenshots folder in:")
-    doc:Faded("1. Press \"How?\" for the link to download \"Set up pictures.bat\".")
-    doc:Faded("2. Put it in the game's Interface\\AddOns\\CaptainsLog folder and double-click it.")
-    doc:Faded("3. Press \"It's set up\". New pictures then show after a /reload.")
+    doc:Line(L["The book can show your screenshots, but the game only reads files inside its own folders. One step, once ever, links your Screenshots folder in:"])
+    doc:Faded(L["1. Press \"How?\" for the link to download \"Set up pictures.bat\"."])
+    doc:Faded(L["2. Put it in the game's Interface\\AddOns\\CaptainsLog folder and double-click it."])
+    doc:Faded(L["3. Press \"It's set up\". New pictures then show after a /reload."])
 end
 
 function Page:RenderPhotos(key)
@@ -546,7 +549,7 @@ function Page:RenderPhotos(key)
     local doc = self.doc
     doc:Clear("photos:" .. key)
     ns.Book:BackLink(doc)
-    doc:Title(date("%A, %d %B %Y", ns.DayTime(key)))
+    doc:Title(date(L["%A, %d %B %Y"], ns.DayTime(key)))
     local photos = d.photos or {}
     self.mapOpen = self.mapOpen or {}
     if not ns.db.settings.photosShow then self:PhotoSetup() end
@@ -559,26 +562,26 @@ function Page:RenderPhotos(key)
     end
     local actions = {}
     if new > 0 then
-        actions[#actions + 1] = { "Reload", icon = "Interface\\Icons\\INV_Misc_Spyglass_03",
-            tip = { "Reload", "The game only notices new pictures when the interface loads; this reloads it (/reload)." },
+        actions[#actions + 1] = { L["Reload"], icon = "Interface\\Icons\\INV_Misc_Spyglass_03",
+            tip = { L["Reload"], L["The game only notices new pictures when the interface loads; this reloads it (/reload)."] },
             onClick = ReloadUI }
     end
     if #photos > 0 then
-        actions[#actions + 1] = { grid and "List" or "Grid", icon = grid and "Interface\\Icons\\INV_Misc_Note_02" or "Interface\\Icons\\INV_Misc_Map_01",
-            tip = grid and { "List", "One picture under another, with its details and buttons." }
-                or { "Grid", "Two pictures to a row, to see more at once." },
+        actions[#actions + 1] = { grid and L["List"] or L["Grid"], icon = grid and "Interface\\Icons\\INV_Misc_Note_02" or "Interface\\Icons\\INV_Misc_Map_01",
+            tip = grid and { L["List"], L["One picture under another, with its details and buttons."] }
+                or { L["Grid"], L["Two pictures to a row, to see more at once."] },
             onClick = function()
                 ns.db.settings.photoView = grid and "list" or "grid"
                 self:Render()
             end }
     end
-    doc:Heading("Pictures (" .. #photos .. ")", actions)
+    doc:Heading(L["Pictures (%d)"]:format(#photos), actions)
     if new > 0 then
-        doc:Text(("%d new picture%s since the interface loaded: /reload (or press Reload) to see %s.")
-            :format(new, new == 1 and "" or "s", new == 1 and "it" or "them"), 11, UI.ACCENT, nil, 8)
+        doc:Text((new == 1 and L["%d new picture since the interface loaded: /reload (or press Reload) to see it."]
+            or L["%d new pictures since the interface loaded: /reload (or press Reload) to see them."]):format(new), 11, UI.ACCENT, nil, 8)
     end
     if #photos == 0 then
-        doc:Faded("No pictures this day. Press \"Take a picture\" below, or your screenshot key: every screenshot is added.")
+        doc:Faded(L["No pictures this day. Press \"Take a picture\" below, or your screenshot key: every screenshot is added."])
     end
     -- Newest first.
     if grid then
@@ -592,9 +595,7 @@ function Page:RenderPhotos(key)
     end
     if ns.db.settings.photosShow then
         doc:Gap(8)
-        doc:Faded("Missing older screenshots? Double-click \"Set up pictures.bat\" in the add-on's folder "
-            .. "again (Settings > Set up pictures... has the download), then /reload: it brings in any "
-            .. "the book doesn't have.")
+        doc:Faded(L["Missing older screenshots? Double-click \"Set up pictures.bat\" in the add-on's folder again (Settings > Set up pictures... has the download), then /reload: it brings in any the book doesn't have."])
     end
     doc:Finish()
 end

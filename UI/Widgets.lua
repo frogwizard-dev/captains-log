@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local UI = {}
 ns.UI = UI
 
@@ -432,15 +433,14 @@ end
 function UI.MapActions(onMap, mapID, x, y, mapTip)
     local actions = {}
     if onMap then
-        actions[#actions + 1] = { "Map", icon = "Interface\\Icons\\INV_Misc_Map_01", onClick = onMap,
-            tip = { "Show on your world map", (mapTip or "Pins this to the game's map.")
-                .. " Right-click a pin there to remove it." } }
+        actions[#actions + 1] = { L["Map"], icon = "Interface\\Icons\\INV_Misc_Map_01", onClick = onMap,
+            tip = { L["Show on your world map"],
+                L["%s Right-click a pin there to remove it."]:format(mapTip or L["Pins this to the game's map."]) } }
     end
     if mapID and x and y then
-        actions[#actions + 1] = { "Waypoint", atlas = "Waypoint-MapPin-ChatIcon", icon = "Interface\\Icons\\INV_Misc_Map02",
+        actions[#actions + 1] = { L["Waypoint"], atlas = "Waypoint-MapPin-ChatIcon", icon = "Interface\\Icons\\INV_Misc_Map02",
             onClick = function() UI.Waypoint(mapID, x, y) end,
-            tip = { "Set a waypoint", "Puts a pin on your world map with the arrow on screen to lead you there. "
-                .. "It replaces any pin you placed yourself." } }
+            tip = { L["Set a waypoint"], L["Puts a pin on your world map with the arrow on screen to lead you there. It replaces any pin you placed yourself."] } }
     end
     return actions
 end
@@ -813,7 +813,7 @@ function UI.Waypoint(mapID, x, y, label)
     mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
     if not (mapID and x and y and C_Map.SetUserWaypoint and UiMapPoint) then return end
     if C_Map.CanSetUserWaypointOnMap and not C_Map.CanSetUserWaypointOnMap(mapID) then
-        ns.Print("The game doesn't allow a waypoint on that map.")
+        ns.Print(L["The game doesn't allow a waypoint on that map."])
         return
     end
     local ok = pcall(function()
@@ -823,10 +823,14 @@ function UI.Waypoint(mapID, x, y, label)
         end
     end)
     if not ok then
-        ns.Print("Couldn't place a waypoint there.")
+        ns.Print(L["Couldn't place a waypoint there."])
         return
     end
-    ns.Print(string.format("Waypoint set%s (%.1f, %.1f).", label and (" for " .. label) or "", x * 100, y * 100))
+    if label then
+        ns.Print(string.format(L["Waypoint set for %s (%.1f, %.1f)."], label, x * 100, y * 100))
+    else
+        ns.Print(string.format(L["Waypoint set (%.1f, %.1f)."], x * 100, y * 100))
+    end
     ns.MapPins.Open(mapID)
 end
 
@@ -846,8 +850,8 @@ function Doc:Map(mapID, spots, layer)
         end)
         m:SetScript("OnEnter", function(b)
             GameTooltip:SetOwner(b, "ANCHOR_CURSOR")
-            GameTooltip:SetText("Show on your world map")
-            GameTooltip:AddLine("Pins these to the game's map. Right-click a pin there to remove it.", 1, 1, 1, true)
+            GameTooltip:SetText(L["Show on your world map"])
+            GameTooltip:AddLine(L["Pins these to the game's map. Right-click a pin there to remove it."], 1, 1, 1, true)
             GameTooltip:Show()
         end)
         m:SetScript("OnLeave", GameTooltip_Hide)
@@ -862,7 +866,7 @@ function Doc:Map(mapID, spots, layer)
     m:SetPoint("TOPLEFT", 8, -self.y)
     m:Show()
     self.y = self.y + h + 4
-    self:Faded(layer and "Click the map to show these on your world map." or "Click the map to open it on your world map.")
+    self:Faded(layer and L["Click the map to show these on your world map."] or L["Click the map to open it on your world map."])
 end
 
 ------------------------------------------------------------------------------
@@ -936,7 +940,7 @@ function Doc:PlacePicture(path, title, aspect, x, y, w)
         b:SetScript("OnClick", function(f) UI.ShowPhoto(f.path, f.title, f.aspect) end)
         b:SetScript("OnEnter", function(f)
             GameTooltip:SetOwner(f, "ANCHOR_CURSOR")
-            GameTooltip:SetText("Click to see it whole")
+            GameTooltip:SetText(L["Click to see it whole"])
             GameTooltip:Show()
         end)
         b:SetScript("OnLeave", GameTooltip_Hide)
@@ -971,8 +975,8 @@ function Doc:PlaceSpotMap(mapID, spot, x, y, w, onClick)
         end)
         f:SetScript("OnEnter", function(b)
             GameTooltip:SetOwner(b, "ANCHOR_CURSOR")
-            GameTooltip:SetText(b.label or "Where it was taken")
-            GameTooltip:AddLine(b.onClick and "Click to mark it on your world map" or "Click to open it on your world map", 1, 1, 1)
+            GameTooltip:SetText(b.label or L["Where it was taken"])
+            GameTooltip:AddLine(b.onClick and L["Click to mark it on your world map"] or L["Click to open it on your world map"], 1, 1, 1)
             GameTooltip:Show()
         end)
         f:SetScript("OnLeave", GameTooltip_Hide)

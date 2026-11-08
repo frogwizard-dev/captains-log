@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local issecret = ns.issecret
 
 -- Combat notes for the bestiary, pieced together from what this client still tells addons:
@@ -14,8 +15,8 @@ local YOUR_WINDOW = 1.0              -- an immunity this soon after your cast is
 local SWING_MIN, SWING_MAX = 0.8, 6  -- gaps outside this aren't one mob's swing timer
 local AVOIDED = { MISS = true, DODGE = true, PARRY = true, BLOCK = true }
 local SCHOOLS = {
-    { 1, "Physical" }, { 2, "Holy" }, { 4, "Fire" }, { 8, "Nature" },
-    { 16, "Frost" }, { 32, "Shadow" }, { 64, "Arcane" },
+    { 1, L["Physical"] }, { 2, L["Holy"] }, { 4, L["Fire"] }, { 8, L["Nature"] },
+    { 16, L["Frost"] }, { 32, L["Shadow"] }, { 64, L["Arcane"] },
 }
 
 local Safe = FrogLib.Safe
@@ -25,7 +26,7 @@ function ns.SchoolName(mask)
     for _, s in ipairs(SCHOOLS) do
         if bit.band(mask, s[1]) ~= 0 then names[#names + 1] = s[2] end
     end
-    return #names > 0 and table.concat(names, "/") or "unknown"
+    return #names > 0 and table.concat(names, "/") or L["unknown"]
 end
 
 local function Bump(t, key)
@@ -295,7 +296,7 @@ end
 
 local function Join(list)
     if #list <= 1 then return list[1] or "" end
-    return table.concat(list, ", ", 1, #list - 1) .. " and " .. list[#list]
+    return table.concat(list, ", ", 1, #list - 1) .. L[" and "] .. list[#list]
 end
 
 local function Pct(n, total)
@@ -309,57 +310,60 @@ function ns.CombatLines(m)
 
     local spells = {}
     for _, e in ipairs(ByCount(c.immuneTo)) do spells[#spells + 1] = e.key end
-    if #spells > 0 then lines[#lines + 1] = "Immune to " .. Join(spells) .. "." end
+    if #spells > 0 then lines[#lines + 1] = L["Immune to %s."]:format(Join(spells)) end
     local schools = {}
     for _, e in ipairs(ByCount(c.immune)) do schools[#schools + 1] = ns.SchoolName(e.key) end
     if #schools > 0 and #spells == 0 then
-        lines[#lines + 1] = "Shrugs off some " .. Join(schools) .. " attacks (immune)."
+        lines[#lines + 1] = L["Shrugs off some %s attacks (immune)."]:format(Join(schools))
     end
 
     for school, r in pairs(c.resist or {}) do
         local parts = {}
-        if r.full > 0 then parts[#parts + 1] = r.full .. " fully" end
-        if r.partial > 0 then parts[#parts + 1] = r.partial .. " partly" end
-        lines[#lines + 1] = string.format("Resists %s: %s.", ns.SchoolName(school), Join(parts))
+        if r.full > 0 then parts[#parts + 1] = L["%d fully"]:format(r.full) end
+        if r.partial > 0 then parts[#parts + 1] = L["%d partly"]:format(r.partial) end
+        lines[#lines + 1] = string.format(L["Resists %s: %s."], ns.SchoolName(school), Join(parts))
     end
     for _, e in ipairs(ByCount(c.reflect)) do
-        lines[#lines + 1] = string.format("Reflects %s spells (x%d).", ns.SchoolName(e.key), e.n)
+        lines[#lines + 1] = string.format(L["Reflects %s spells (x%d)."], ns.SchoolName(e.key), e.n)
     end
 
     local deals = {}
     for _, e in ipairs(ByCount(c.attacks)) do deals[#deals + 1] = ns.SchoolName(e.key) end
-    if #deals > 0 then lines[#lines + 1] = "Deals " .. Join(deals) .. " damage." end
+    if #deals > 0 then lines[#lines + 1] = L["Deals %s damage."]:format(Join(deals)) end
 
     local mel = c.melee
     if mel and (mel.min or mel.gaps >= 3) then
-        local s = "Melee"
-        if mel.min then
-            s = s .. (mel.min == mel.max and (" hits for " .. mel.min) or string.format(" hits for %d-%d", mel.min, mel.max))
+        local hits = mel.min and (mel.min == mel.max and tostring(mel.min) or string.format("%d-%d", mel.min, mel.max))
+        local every = mel.gaps >= 3 and mel.gapTime / mel.gaps
+        if hits and every then
+            lines[#lines + 1] = string.format(L["Melee hits for %s, about every %.1fs."], hits, every)
+        elseif hits then
+            lines[#lines + 1] = string.format(L["Melee hits for %s."], hits)
+        else
+            lines[#lines + 1] = string.format(L["Melee, about every %.1fs."], every)
         end
-        if mel.gaps >= 3 then s = s .. string.format(", about every %.1fs", mel.gapTime / mel.gaps) end
-        lines[#lines + 1] = s .. "."
     end
 
     if c.casts then
-        lines[#lines + 1] = string.format("Casts spells (seen %d %s).", c.casts, c.casts == 1 and "time" or "times")
+        lines[#lines + 1] = string.format(c.casts == 1 and L["Casts spells (seen %d time)."] or L["Casts spells (seen %d times)."], c.casts)
     end
     local inflicts = {}
     for name in pairs(c.inflicts or {}) do inflicts[#inflicts + 1] = name end
     if #inflicts > 0 then
         table.sort(inflicts)
-        lines[#lines + 1] = "Has afflicted you with " .. Join(inflicts) .. "."
+        lines[#lines + 1] = L["Has afflicted you with %s."]:format(Join(inflicts))
     end
 
     local d = c.defence
     if d and d.swings >= 20 then
         local parts = {}
-        if (d.dodge or 0) > 0 then parts[#parts + 1] = "dodges " .. Pct(d.dodge, d.swings) end
-        if (d.parry or 0) > 0 then parts[#parts + 1] = "parries " .. Pct(d.parry, d.swings) end
-        if (d.block or 0) > 0 then parts[#parts + 1] = "blocks " .. Pct(d.block, d.swings) end
+        if (d.dodge or 0) > 0 then parts[#parts + 1] = L["dodges %s"]:format(Pct(d.dodge, d.swings)) end
+        if (d.parry or 0) > 0 then parts[#parts + 1] = L["parries %s"]:format(Pct(d.parry, d.swings)) end
+        if (d.block or 0) > 0 then parts[#parts + 1] = L["blocks %s"]:format(Pct(d.block, d.swings)) end
         if #parts > 0 then
-            lines[#lines + 1] = string.format("Against melee it %s (of %d swings).", Join(parts), d.swings)
+            lines[#lines + 1] = string.format(L["Against melee it %s (of %d swings)."], Join(parts), d.swings)
         else
-            lines[#lines + 1] = string.format("Hasn't dodged, parried or blocked in %d swings.", d.swings)
+            lines[#lines + 1] = string.format(L["Hasn't dodged, parried or blocked in %d swings."], d.swings)
         end
     end
     return lines

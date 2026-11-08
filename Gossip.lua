@@ -1,4 +1,5 @@
 local _, ns = ...
+local L = ns.L
 local issecret = ns.issecret
 
 -- What people say: each NPC's gossip window, written down as a conversation. The greeting and
