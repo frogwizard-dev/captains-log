@@ -2,21 +2,21 @@ local _, ns = ...
 local L = ns.L
 local UI = ns.UI
 
--- The journey map: a day's route (Journey.lua) played back on the game's world map, with a
--- control bar along the map's foot: the day, play/pause and speed, "whole path", and a time bar
--- to click or drag through the day. The route so far is drawn solid, the rest faintly; a marker
--- sits where you were at that moment, and things from the log that happened by then show as
--- small icons where they happened (hover one for its line in the book).
+-- The Journey window: a day's route (Journey.lua) played back on a map of our own, with a
+-- control bar along the window's foot: the day, play/pause and speed, "whole route", and a time
+-- bar to click or drag through the day. The route so far is drawn solid, the rest faintly; a
+-- marker sits where you were at that moment, and things from the log that happened by then show
+-- as small icons where they happened (hover one for its line in the book).
 --
--- Drawn the way FrogLib.Lines draws (lines on the map's canvas, from world positions), but by
--- hand: each piece of the route keeps its own line, placed once whenever the map or its zoom
--- changes, so scrubbing only shows, hides or recolours the pieces that changed instead of
--- placing every line again. Redraws are held to about 20 a second, and nothing runs while the
--- bar is closed or the map is shut.
+-- The map is drawn here too, from the zone's art tiles (C_Map.GetMapArtLayerTextures, laid out
+-- as Blizzard's MapCanvas lays them), on a canvas frame that is scaled to zoom and moved by its
+-- anchor offset to pan. Each piece of the route keeps its own line, placed once whenever the map
+-- changes (zooming only changes thicknesses and sizes), so scrubbing only shows, hides or
+-- recolours the pieces that changed. Redraws are held to about 30 a second, and nothing runs
+-- while the window is shut.
 --
--- Nothing here touches the map's protected parts: the lines and icons are plain frames on its
--- canvas (not map pins, which can be blocked in combat), and the map is only opened or moved to
--- another zone out of combat.
+-- Nothing here touches Blizzard's world map: driving it from addon code tainted it (its quest
+-- pins were then blocked in combat). It only gets a small button of ours that opens the window.
 
 local JM = {}
 ns.JourneyMap = JM
@@ -26,7 +26,10 @@ local SPEEDS = { { 60, "1x" }, { 300, "5x" }, { 1200, "20x" }, { 6000, "100x" } 
 local GAP = 300          -- seconds without a point: playback jumps straight over it
 local MAX_POINTS = 8000  -- "All days" is thinned to about this many points
 local MAX_TICKS = 400
-local FRAME = 0.05       -- seconds between redraws (20 a second)
+local FRAME = 1 / 30     -- seconds between redraws (30 a second)
+local FOLLOW_ZOOM = 2.5  -- how far in the camera starts while following
+local MAX_ZOOM = 12
+local PORTRAIT_W, PORTRAIT_H = 220, 300
 local PAST = { 0.85, 0.15, 0.08, 0.95 }
 local FUTURE = { 0.85, 0.15, 0.08, 0.22 }
 local WIDTH = 3          -- line width on screen, in pixels
@@ -87,7 +90,6 @@ local MAX_DOTS = 2500
 local COMPRESS_GAP = 180  -- seconds with nothing happening: squeezed on the time bar...
 local GAP_W = 6           -- ...to this many pixels
 local BUCKETS = 100       -- the activity strip's divisions
-local MAX_NOTES = 4
 local SETTLED = 0.38      -- an icon's alpha once it has had its moment
 local JUMP_T = 900        -- a step forward bigger than this (seconds) is a jump: no animation
 local FIGHT_PAST = { 1.00, 0.10, 0.10, 1.00 }
@@ -143,9 +145,10 @@ local function HasAtlas(name)
     return name and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name) ~= nil
 end
 
-local function Canvas()
-    return WorldMapFrame and WorldMapFrame.ScrollContainer and WorldMapFrame.ScrollContainer.Child
-end
+-- The window, the map view in it (clips), and the canvas on the view: map art and everything
+-- drawn sit on the canvas, in the map art's own pixels; it is scaled to zoom and moved to pan.
+local win, view, canvas
+local function Canvas() return canvas end
 
 ------------------------------------------------------------------------------
 -- State
@@ -254,8 +257,9 @@ local function Load()
     local times = {}
     for i, p in ipairs(pts) do times[i] = p.t end
     S.pts, S.times, S.events = pts, times, events
-    -- What you wore when: each level's snapshot, then every upgrade logged since (all days, so a
-    -- snapshot from days before still leads up to now).
+    -- What you wore when: each level's snapshot, then every change of gear since (day.gc, every
+    -- piece put on or taken off; the upgrades in the log for days before it was kept), all days,
+    -- so a snapshot from days before still leads up to now.
     local snaps, equips = {}, {}
     for _, rec in pairs(ns.db.levels or {}) do
         if type(rec) == "table" and rec.snap and rec.snap.gear then
@@ -263,8 +267,14 @@ local function Load()
         end
     end
     for _, day in pairs(ns.db.days or {}) do
-        for _, ev in ipairs(day.events or {}) do
-            if ev.k == "equip" and ev.slot and ev.id and ev.t then equips[#equips + 1] = ev end
+        if day.gc then
+            for t, slot, id in day.gc:gmatch("(%d+),(%d+),(%d+)") do
+                equips[#equips + 1] = { t = tonumber(t), slot = tonumber(slot), id = tonumber(id) }
+            end
+        else
+            for _, ev in ipairs(day.events or {}) do
+                if ev.k == "equip" and ev.slot and ev.id and ev.t then equips[#equips + 1] = ev end
+            end
         end
     end
     table.sort(snaps, function(a, b) return a.t < b.t end)
@@ -385,7 +395,7 @@ local function XToTime(x) return Interp(KX, KT, x) end
 ------------------------------------------------------------------------------
 
 local hero -- the portrait of you while it plays
-local bar, toggle -- the control bar, and the map's button that opens it
+local bar, toggle -- the control bar, and the world map's button that opens the window
 local holder, marker
 local lines, head = {}, nil
 local L_END = {}      -- per line: the index of the point it ends at
@@ -396,21 +406,199 @@ local FIGHTY = {}     -- per line: drawn red (a fight)
 local nLines, nIcons, nDots = 0, 0, 0
 local canvasScale = 1
 local lastK            -- lines drawn as "past" last time
-local mapInst, layoutDirty, dirty = nil, true, true
+local layoutDirty, dirty, scaleDirty = true, true, true
 
-local instCache = {}
--- The instance (continent) a map shows, by asking where its middle lies in the world.
-local function MapInstance(mapID)
-    if not mapID then return end
-    local v = instCache[mapID]
-    if v ~= nil then return v or nil end
-    v = false
-    if C_Map and C_Map.GetWorldPosFromMapPos and CreateVector2D then
-        local ok, inst = pcall(C_Map.GetWorldPosFromMapPos, mapID, CreateVector2D(0.5, 0.5))
-        if ok and type(inst) == "number" and not ns.issecret(inst) then v = inst end
+------------------------------------------------------------------------------
+-- The map view: zone art, the camera (zoom, pan, follow)
+------------------------------------------------------------------------------
+
+-- The camera: the canvas point at the view's middle (canvas pixels), and the zoom (1 = the
+-- whole map fits the view). follow: centring on the marker as it moves.
+local cam = { x = 0, y = 0, zoom = 1, follow = true }
+local mapW, mapH = 1002, 668  -- the shown map's art size (canvas pixels)
+local mapID                   -- the map shown
+local continent = false       -- showing the parent map (the continent) instead of the zone
+local tiles, overlays = {}, {}
+local markU, markV            -- where the marker was last drawn (0-1), for the camera
+
+local function SafeNumber(v)
+    if type(v) == "number" and not ns.issecret(v) then return v end
+end
+
+local function MapName(id)
+    local ok, info = pcall(C_Map.GetMapInfo, id)
+    local name = ok and info and info.name
+    if type(name) == "string" and not ns.issecret(name) then return name end
+    return ""
+end
+
+-- The map to show for a point's zone: the zone, or its parent while "Continent" is on.
+local function MapFor(id)
+    if not id then return end
+    if continent then
+        local ok, info = pcall(C_Map.GetMapInfo, id)
+        local parent = ok and info and SafeNumber(info.parentMapID)
+        if parent and parent > 0 then return parent end
     end
-    instCache[mapID] = v
-    return v or nil
+    return id
+end
+
+local function TakeTex(pool, i)
+    local t = pool[i]
+    if not t then
+        t = canvas:CreateTexture(nil, "BACKGROUND")
+        pool[i] = t
+    end
+    return t
+end
+
+-- The art layers of the map shown (C_Map.GetMapArtLayers), and the one whose tiles are laid.
+local artLayers, tileLayer
+
+-- The art layer for a zoom: the smallest one at least about as wide as the map is on screen
+-- (maps with more than one layer have sharper ones for zooming in, as MapCanvas switches to).
+local function PickLayer(s)
+    if not artLayers or #artLayers < 2 then return 1 end
+    local onScreen = mapW * s
+    for i, info in ipairs(artLayers) do
+        local lw = SafeNumber(info.layerWidth)
+        if lw and lw >= onScreen * 0.9 then return i end
+    end
+    return #artLayers
+end
+
+-- The tiles of art layer `li`, stretched over the canvas (which is the first layer's size).
+local function LayoutBase(li)
+    local nt = 0
+    tileLayer = li
+    local info = artLayers and artLayers[li]
+    local tw, th = info and SafeNumber(info.tileWidth), info and SafeNumber(info.tileHeight)
+    local lw, lh = info and SafeNumber(info.layerWidth), info and SafeNumber(info.layerHeight)
+    if tw and th and lw and lh and tw > 0 and th > 0 and lw > 0 and lh > 0 then
+        local fx, fy = mapW / lw, mapH / lh
+        local ok2, files = pcall(C_Map.GetMapArtLayerTextures, mapID, li)
+        if ok2 and type(files) == "table" then
+            local cols, rows = math.ceil(lw / tw), math.ceil(lh / th)
+            for row = 1, rows do
+                for col = 1, cols do
+                    local file = files[(row - 1) * cols + col]
+                    if file then
+                        nt = nt + 1
+                        local t = TakeTex(tiles, nt)
+                        t:SetDrawLayer("BACKGROUND", -7)
+                        t:SetTexture(file, nil, nil, "TRILINEAR")
+                        t:SetTexCoord(0, 1, 0, 1)
+                        t:SetSize(tw * fx, th * fy)
+                        t:ClearAllPoints()
+                        t:SetPoint("TOPLEFT", canvas, "TOPLEFT", (col - 1) * tw * fx, -(row - 1) * th * fy)
+                        t:Show()
+                    end
+                end
+            end
+        end
+    end
+    for i = nt + 1, #tiles do tiles[i]:Hide() end
+    canvas.empty:SetShown(nt == 0)
+end
+
+-- The map's art: an art layer's tiles in rows (as MapCanvasDetailLayer does), then the explored
+-- areas on top (as MapExplorationDataProvider does, minus the mouse-over ones).
+local function LayoutTiles()
+    local no = 0
+    local w, h = 1002, 668
+    local ok, layers = pcall(C_Map.GetMapArtLayers, mapID)
+    artLayers = ok and type(layers) == "table" and layers or nil
+    local info = artLayers and artLayers[1]
+    local tw, th = info and SafeNumber(info.tileWidth), info and SafeNumber(info.tileHeight)
+    if info and SafeNumber(info.layerWidth) and info.layerWidth > 0 and tw and th and tw > 0 and th > 0 then
+        w, h = info.layerWidth, info.layerHeight
+        local ok3, explored = false, nil
+        if C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures then
+            ok3, explored = pcall(C_MapExplorationInfo.GetExploredMapTextures, mapID)
+        end
+        for _, e in ipairs(ok3 and type(explored) == "table" and explored or {}) do
+            if not e.isShownByMouseOver and e.fileDataIDs then
+                local wide, tall = math.ceil(e.textureWidth / tw), math.ceil(e.textureHeight / th)
+                for j = 1, tall do
+                    local ph, fh = th, th
+                    if j == tall then
+                        ph = e.textureHeight % th
+                        if ph == 0 then ph = th end
+                        fh = 16
+                        while fh < ph do fh = fh * 2 end
+                    end
+                    for k = 1, wide do
+                        local pw, fw = tw, tw
+                        if k == wide then
+                            pw = e.textureWidth % tw
+                            if pw == 0 then pw = tw end
+                            fw = 16
+                            while fw < pw do fw = fw * 2 end
+                        end
+                        local file = e.fileDataIDs[(j - 1) * wide + k]
+                        if file then
+                            no = no + 1
+                            local t = TakeTex(overlays, no)
+                            t:SetDrawLayer("BACKGROUND", e.isDrawOnTopLayer and -5 or -6)
+                            t:SetTexture(file, nil, nil, "TRILINEAR")
+                            t:SetSize(pw, ph)
+                            t:SetTexCoord(0, pw / fw, 0, ph / fh)
+                            t:ClearAllPoints()
+                            t:SetPoint("TOPLEFT", canvas, "TOPLEFT", e.offsetX + tw * (k - 1), -(e.offsetY + th * (j - 1)))
+                            t:Show()
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for i = no + 1, #overlays do overlays[i]:Hide() end
+    mapW, mapH = w, h
+    canvas:SetSize(w, h)
+    local vw, vh = view:GetWidth(), view:GetHeight()
+    local s = (vw > 0 and vh > 0) and math.min(vw / w, vh / h) * cam.zoom or 1
+    LayoutBase(PickLayer(s))
+end
+
+-- The zoom at which the whole map just fits the view, times the camera's zoom.
+local function CamScale()
+    local vw, vh = view:GetWidth(), view:GetHeight()
+    if vw <= 0 or vh <= 0 then return 1 end
+    return math.max(0.05, math.min(vw / mapW, vh / mapH) * cam.zoom)
+end
+
+-- Puts the canvas where the camera says (kept inside the map). Cheap: one scale, one anchor.
+local function PlaceCanvas()
+    if not canvas then return end
+    local vw, vh = view:GetWidth(), view:GetHeight()
+    if vw <= 0 or vh <= 0 then return end
+    local s = CamScale()
+    if math.abs(s - (canvas.s or 0)) > 1e-6 then
+        canvas:SetScale(s)
+        canvas.s = s
+        scaleDirty = true
+        local li = PickLayer(s)
+        if li ~= tileLayer then LayoutBase(li) end
+    end
+    local hw, hh = vw / (2 * s), vh / (2 * s)
+    if mapW <= 2 * hw then cam.x = mapW / 2 else cam.x = math.max(hw, math.min(mapW - hw, cam.x)) end
+    if mapH <= 2 * hh then cam.y = mapH / 2 else cam.y = math.max(hh, math.min(mapH - hh, cam.y)) end
+    -- Anchor offsets are in the canvas's own (scaled) units.
+    canvas:ClearAllPoints()
+    canvas:SetPoint("TOPLEFT", view, "TOPLEFT", hw - cam.x, -(hh - cam.y))
+end
+
+local UpdateMapButtons -- set once the view's buttons exist
+
+-- Shows another map in the view (nothing happens if it's already shown).
+local function SetMap(id)
+    if not id or id == mapID or not canvas then return end
+    mapID = id
+    LayoutTiles()
+    layoutDirty = true
+    if view.zone then view.zone:SetText(MapName(id)) end
+    if UpdateMapButtons then UpdateMapButtons() end
+    PlaceCanvas()
 end
 
 -- Where a world position falls on a map (0-1), or nil if it isn't on it. A little leeway past
@@ -514,7 +702,7 @@ local function TakeIcon(i)
         f = CreateFrame("Frame", nil, holder)
         f.tex = f:CreateTexture(nil, "OVERLAY")
         f.tex:SetAllPoints()
-        -- Hover only: clicks and drags go through to the map.
+        -- Hover only: clicks and drags go through to the view.
         pcall(f.SetMouseMotionEnabled, f, true)
         pcall(f.SetMouseClickEnabled, f, false)
         f:SetScript("OnEnter", IconEnter)
@@ -543,18 +731,16 @@ local function TakeDot(i)
 end
 
 ------------------------------------------------------------------------------
--- Things happening: icons pop in as the marker reaches them, with a short note
+-- Things happening: icons pop in as the marker reaches them, and the log down the side
 ------------------------------------------------------------------------------
 
 local anims = {} -- { f, start, dot }
-local notes = {} -- active notes, oldest first: { frame, start, slot }
-local notePool = {}
 
 local function Plain(s)
     s = s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1"):gsub("|T.-|t", "")
     s = s:gsub("[%.!]$", "")
-    if #s > 64 then
-        s = s:sub(1, 62):gsub("[\192-\255][\128-\191]*$", "") .. "..."
+    if #s > 110 then
+        s = s:sub(1, 108):gsub("[\192-\255][\128-\191]*$", "") .. "..."
     end
     return s
 end
@@ -578,72 +764,256 @@ local function NoteText(e)
     return line and Plain(line) or nil
 end
 
-local function ReleaseNote(n)
-    n.frame:Hide()
-    n.frame:ClearAllPoints()
-    notePool[#notePool + 1] = n.frame
-end
-
--- The notes are a list in the map's corner (under your portrait when it's shown), each with the
--- thing's icon, newest at the bottom: beside their icons they ran into each other. The big moments
--- hold the playback a moment so there's time to read them.
-local NOTE_TIME = 4
+-- The big moments hold the playback a moment so there's time to read them.
 local BIG = { level = true, quest = true, death = true, boss = true, firstitem = true, closecall = true,
     dungeon = true, milestone = true }
-local feed
 
-local function PlaceNotes()
-    if not feed then return end
-    feed:ClearAllPoints()
-    local below = hero and hero:IsShown()
-    feed:SetPoint("TOPLEFT", WorldMapFrame.ScrollContainer, "TOPLEFT", 10, below and -226 or -10)
-    for i, n in ipairs(notes) do
-        n.frame:ClearAllPoints()
-        n.frame:SetPoint("TOPLEFT", feed, "TOPLEFT", 0, -(i - 1) * 21)
+-- The log down the side: every shown entry up to the moment shown, oldest at the top. Rows are
+-- pooled and chained (each under the one before), and only the end of the list changes as the
+-- moment moves: rows are added or taken off there, and a jump builds it again. At most MAX_ROWS
+-- are kept; older ones drop off the top.
+local MAX_ROWS = 250
+local ROW_GAP = 2
+local side, logScroll, logChild          -- the column, its scroll frame and the scrolled content
+local logList = {}                      -- the entries the log can show (in the Show menu), by time
+local logRows, rowPool = {}, {}         -- rows shown, in order; spare rows
+local logFirst, logLast = 1, 0          -- the logList indexes shown
+local logH = 0                          -- the content's height
+local logStick = true                   -- following the bottom (not scrolled up by hand)
+local logDirty = true
+local JumpTo                            -- set further down: clicking a row jumps there
+
+local function LogOn() return ns.db.settings.journeyNotes ~= false end
+
+local function LogMax()
+    return math.max(0, logH - logScroll:GetHeight())
+end
+
+local function LogToBottom()
+    if logStick then logScroll:SetVerticalScroll(LogMax()) end
+end
+
+local function RowEnter(r)
+    r.hl:Show()
+    if r.entry then ShowEntry(r.entry, r, "ANCHOR_RIGHT") end
+end
+
+local function RowLeave(r)
+    r.hl:Hide()
+    GameTooltip_Hide()
+end
+
+local function RowClick(r)
+    if r.entry and JumpTo then JumpTo(r.entry.ev.t) end
+end
+
+local function NewRow()
+    local r = table.remove(rowPool)
+    if r then return r end
+    r = CreateFrame("Button", nil, logChild)
+    r.time = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local font = r.time:GetFont()
+    if font then r.time:SetFont(font, 9, "") end
+    r.time:SetTextColor(0.75, 0.68, 0.55, 0.7)
+    r.time:SetPoint("TOPLEFT", 2, -3)
+    r.time:SetWidth(30)
+    r.time:SetJustifyH("LEFT")
+    r.icon = r:CreateTexture(nil, "ARTWORK")
+    r.icon:SetSize(16, 16)
+    r.icon:SetPoint("TOPLEFT", 34, -1)
+    r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.text:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 4, -1)
+    r.text:SetJustifyH("LEFT")
+    r.text:SetWordWrap(true)
+    if r.text.SetMaxLines then r.text:SetMaxLines(2) end
+    r.hl = r:CreateTexture(nil, "BACKGROUND")
+    r.hl:SetAllPoints()
+    r.hl:SetColorTexture(1, 0.85, 0.5, 0.12)
+    r.hl:Hide()
+    -- The newest line's flash.
+    r.flash = r:CreateTexture(nil, "BACKGROUND", nil, 1)
+    r.flash:SetAllPoints()
+    r.flash:SetColorTexture(1, 0.8, 0.3, 1)
+    r.flash:SetAlpha(0)
+    local ag = r.flash:CreateAnimationGroup()
+    if ag.SetToFinalAlpha then ag:SetToFinalAlpha(true) end
+    local a1 = ag:CreateAnimation("Alpha") a1:SetFromAlpha(0) a1:SetToAlpha(0.35) a1:SetDuration(0.15) a1:SetOrder(1)
+    local a2 = ag:CreateAnimation("Alpha") a2:SetFromAlpha(0.35) a2:SetToAlpha(0) a2:SetDuration(1.2) a2:SetOrder(2)
+    ag:SetScript("OnFinished", function() r.flash:SetAlpha(0) end)
+    r.flashAnim = ag
+    r:SetScript("OnEnter", RowEnter)
+    r:SetScript("OnLeave", RowLeave)
+    r:SetScript("OnClick", RowClick)
+    return r
+end
+
+local function FreeRow(r)
+    r:Hide()
+    r:ClearAllPoints()
+    r.entry = nil
+    r.flashAnim:Stop()
+    r.flash:SetAlpha(0)
+    rowPool[#rowPool + 1] = r
+end
+
+local function AnchorFirst()
+    local r = logRows[1]
+    if r then
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", logChild, "TOPLEFT", 0, 0)
+        r:SetPoint("RIGHT", logChild, "RIGHT")
     end
 end
 
-local function ShowNote(f, text)
-    if not text or text == "" or not bar then return end
-    if not feed then
-        feed = CreateFrame("Frame", nil, bar)
-        feed:SetSize(1, 1)
+local function SetLogHeight()
+    logChild:SetHeight(math.max(1, logH))
+end
+
+-- Adds logList[i] at the bottom.
+local function PushRow(i, flash)
+    local e = logList[i]
+    local r = NewRow()
+    r.entry = e
+    r.time:SetText(date("%H:%M", e.ev.t))
+    r.text:SetWidth(math.max(60, logChild:GetWidth() - 58))
+    SetIconTexture(r.icon, e.ev)
+    r.text:SetText(NoteText(e) or "")
+    local h = math.max(18, math.ceil(r.text:GetStringHeight() or 12) + 4)
+    r:SetHeight(h)
+    r.h = h
+    r:ClearAllPoints()
+    local prev = logRows[#logRows]
+    if prev then
+        r:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -ROW_GAP)
+        r:SetPoint("RIGHT", logChild, "RIGHT")
     end
-    if #notes >= MAX_NOTES then ReleaseNote(table.remove(notes, 1)) end
-    local fr = table.remove(notePool)
-    if not fr then
-        fr = CreateFrame("Frame", nil, feed)
-        fr.bg = fr:CreateTexture(nil, "BACKGROUND")
-        fr.bg:SetAllPoints()
-        fr.bg:SetColorTexture(0, 0, 0, 0.7)
-        fr.icon = fr:CreateTexture(nil, "ARTWORK")
-        fr.icon:SetSize(16, 16)
-        fr.icon:SetPoint("LEFT", 3, 0)
-        fr.text = fr:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        fr.text:SetPoint("LEFT", fr.icon, "RIGHT", 5, 0)
-        local font, size = fr.text:GetFont()
-        if font then fr.text:SetFont(font, (size or 10) + 1, "OUTLINE") end
-        pcall(fr.EnableMouse, fr, false)
+    logRows[#logRows + 1] = r
+    if not prev then AnchorFirst() end
+    r:Show()
+    logH = logH + h + (prev and ROW_GAP or 0)
+    logLast = i
+    if #logRows > MAX_ROWS then
+        local first = table.remove(logRows, 1)
+        logH = logH - first.h - ROW_GAP
+        FreeRow(first)
+        logFirst = logFirst + 1
+        AnchorFirst()
     end
-    fr:SetFrameStrata("HIGH")
-    local tex = f.tex and f.tex:GetTexture()
-    if tex then
-        fr.icon:SetTexture(tex)
-        fr.icon:SetTexCoord(f.tex:GetTexCoord())
-        fr.icon:Show()
+    if flash then
+        r.flashAnim:Stop()
+        r.flashAnim:Play()
+    end
+end
+
+local function PopRow()
+    local r = table.remove(logRows)
+    if not r then return end
+    logH = logH - r.h - (#logRows > 0 and ROW_GAP or 0)
+    FreeRow(r)
+    logLast = logLast - 1
+end
+
+local function ClearLog()
+    for i = #logRows, 1, -1 do FreeRow(logRows[i]) end
+    wipe(logRows)
+    logH, logFirst, logLast = 0, 1, 0
+end
+
+-- How many logList entries happened at or before t.
+local function LogCount(t)
+    local lo, hi = 0, #logList
+    while lo < hi do
+        local mid = math.floor((lo + hi + 1) / 2)
+        if logList[mid].ev.t <= t then lo = mid else hi = mid - 1 end
+    end
+    return lo
+end
+
+-- Brings the log up to the moment shown. forward: playing (or dragging) on; the newest lines then
+-- flash, and a big one holds the playback.
+local function SyncLog(forward)
+    if not logChild or not LogOn() then return end
+    if logDirty then
+        logDirty = false
+        wipe(logList)
+        for _, e in ipairs(S.events) do
+            -- Kills stay on the map but not in the list (there are too many of them to read).
+            if ICONS[e.ev.k] and Visible(e.ev) and e.ev.k ~= "kill" then logList[#logList + 1] = e end
+        end
+        ClearLog()
+    end
+    local want = S.whole and #logList or LogCount(S.cur)
+    if want == logLast then return end
+    if want < logLast and want >= logFirst then
+        while logLast > want do PopRow() end
+    elseif want > logLast and want - logLast <= 20 and logLast >= logFirst - 1 then
+        for i = logLast + 1, want do
+            PushRow(i, forward and i == want)
+            local k = logList[i].ev.k
+            if forward and BIG[k] and S.playing and ns.db.settings.journeyHold ~= false then
+                S.holdUntil = GetTime() + 1.8
+            end
+        end
     else
-        fr.icon:Hide()
+        -- A jump: built again from the moment shown.
+        ClearLog()
+        local from = math.max(1, want - MAX_ROWS + 1)
+        logFirst, logLast = from, from - 1
+        for i = from, want do PushRow(i, false) end
     end
-    fr.text:SetText(text)
-    fr:SetSize(fr.text:GetStringWidth() + 30, 20)
-    fr:SetAlpha(0)
-    fr:Show()
-    notes[#notes + 1] = { frame = fr, start = GetTime() }
-    PlaceNotes()
-    local k = f.entry and f.entry.ev and f.entry.ev.k
-    if k and BIG[k] and S.playing and ns.db.settings.journeyHold ~= false then
-        S.holdUntil = GetTime() + 1.8
+    SetLogHeight()
+    LogToBottom()
+end
+
+-- The column: shown with "Log down the side" on; your portrait at its top while it shows.
+local function PlaceSide()
+    if not side then return end
+    local on = LogOn()
+    side:SetShown(on)
+    view:ClearAllPoints()
+    view:SetPoint("BOTTOMRIGHT", -12, 82)
+    if on then
+        view:SetPoint("TOPLEFT", side, "TOPRIGHT", 6, 0)
+    else
+        view:SetPoint("TOPLEFT", 12, -34)
     end
+    local portrait = hero and hero:IsShown()
+    if hero then
+        hero:ClearAllPoints()
+        if on then
+            hero:SetPoint("TOPLEFT", side, "TOPLEFT", 0, 0)
+        else
+            hero:SetPoint("TOPLEFT", view, "TOPLEFT", 8, -8)
+        end
+    end
+    logScroll:ClearAllPoints()
+    logScroll:SetPoint("TOPLEFT", side, "TOPLEFT", 4, (on and portrait) and -(PORTRAIT_H + 8) or -4)
+    logScroll:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", -4, 4)
+end
+
+local function BuildSide()
+    side = CreateFrame("Frame", nil, win)
+    side:SetPoint("TOPLEFT", 12, -34)
+    side:SetPoint("BOTTOMLEFT", 12, 82)
+    side:SetWidth(PORTRAIT_W)
+    local bg = side:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.06, 0.05, 0.04, 0.9)
+    logScroll = CreateFrame("ScrollFrame", nil, side)
+    logScroll:EnableMouseWheel(true)
+    logChild = CreateFrame("Frame", nil, logScroll)
+    logChild:SetSize(PORTRAIT_W - 8, 1)
+    logScroll:SetScrollChild(logChild)
+    logScroll:SetScript("OnMouseWheel", function(self, delta)
+        local max = LogMax()
+        local v = math.max(0, math.min(max, self:GetVerticalScroll() - delta * 40))
+        self:SetVerticalScroll(v)
+        logStick = v >= max - 2 -- back at the bottom: following it again
+    end)
+    logScroll:SetScript("OnSizeChanged", function(self, w)
+        if w and w > 0 then logChild:SetWidth(w) end
+        LogToBottom()
+    end)
 end
 
 local function Pop(f, isDot)
@@ -662,14 +1032,12 @@ end
 local function StopAll()
     for _, a in ipairs(anims) do EndAnim(a.f) end
     wipe(anims)
-    for _, n in ipairs(notes) do ReleaseNote(n) end
-    wipe(notes)
 end
 JM.StopAnimations = StopAll
 
--- Every frame while the bar is open (cheap: only what's moving).
+-- Every frame while the window is open (cheap: only what's moving).
 local function Animate()
-    if #anims == 0 and #notes == 0 then return end
+    if #anims == 0 then return end
     local now = GetTime()
     for i = #anims, 1, -1 do
         local a = anims[i]
@@ -695,35 +1063,42 @@ local function Animate()
             f:SetAlpha(f.hover and 1 or alpha)
         end
     end
-    for i = #notes, 1, -1 do
-        local n = notes[i]
-        local el = now - n.start
-        if el >= NOTE_TIME + 0.4 then
-            ReleaseNote(n)
-            table.remove(notes, i)
-            PlaceNotes()
-        else
-            n.frame:SetAlpha(el < 0.15 and el / 0.15 or (el < NOTE_TIME and 1 or 1 - (el - NOTE_TIME) / 0.4))
-        end
-    end
 end
 
--- Places every piece of the route and every entry on the map being shown. Runs when the map,
--- its zoom or the range changes.
+-- Sizes that stay the same on screen whatever the zoom: line widths, icons, dots, the marker.
+-- Runs when the zoom changes; nothing moves.
+local function ApplyScale()
+    scaleDirty = false
+    if not holder then return end
+    local scale = canvas.s or 1
+    if scale <= 0 then scale = 1 end
+    canvasScale = scale
+    for i = 1, nLines do lines[i]:SetThickness(WIDTH / scale) end
+    head:SetThickness(WIDTH / scale)
+    for i = 1, nIcons do
+        local f = icons[i]
+        f.base = ICON / scale
+        if not f.anim then f:SetSize(f.base, f.base) end
+    end
+    for i = 1, nDots do
+        local f = dotFrames[i]
+        f.base = DOT / scale
+        if not f.anim then f:SetSize(f.base, f.base) end
+    end
+    marker:SetSize(22 / scale, 22 / scale)
+end
+
+-- Places every piece of the route and every entry on the map being shown. Runs when the map or
+-- the range changes (positions are in the canvas's own pixels, so zooming doesn't need it).
 local function Layout()
     layoutDirty = false
     lastK = nil
-    local canvas = Canvas()
     if not canvas then return end
     EnsureHolder(canvas)
-    holder:SetFrameLevel(canvas:GetFrameLevel() + 2100)
+    holder:SetFrameLevel(canvas:GetFrameLevel() + 2)
     marker:SetFrameLevel(holder:GetFrameLevel() + 20)
-    local mapID = WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
-    local inst = MapInstance(mapID)
-    mapInst = inst
     local W, H = canvas:GetWidth(), canvas:GetHeight()
-    local sc = WorldMapFrame.ScrollContainer
-    local scale = (sc.GetCanvasScale and sc:GetCanvasScale()) or 1
+    local scale = canvas.s or 1
     if scale <= 0 then scale = 1 end
     canvasScale = scale
     StopAll()
@@ -735,9 +1110,8 @@ local function Layout()
     -- it). Not by comparing instances: the map's own instance can't be worked out for every map
     -- (Forever's new zones), and a point's continent decides it anyway.
     if W > 0 and mapID and not Hidden("route") then
-        local placed = {}
         for i, p in ipairs(pts) do
-            local u, v = OnMap(p.inst, p.y, p.x, mapID, placed)
+            local u, v = OnMap(p.inst, p.y, p.x, mapID)
             if u then U[i], V[i] = u, v end
         end
     end
@@ -853,21 +1227,30 @@ local function Position(t)
     return U[idx], V[idx], nil, idx
 end
 
--- Following the route across maps: while it plays or you scrub, a moment the open map doesn't
--- show (Zephras Isle, then Mulgore, then the Barrens) brings up the zone map you were in then. A
--- map that already shows it (a continent) is left alone. Not in combat (changing the map then
--- isn't safe), and each map is only tried once in a row so one that won't open isn't hammered.
-local lastFollow
+-- Following: the view shows the zone map of the moment shown, so the camera goes with you from
+-- zone to zone (or continent to continent, with "Continent" on). Only while following.
 local function Follow()
-    if ns.db.settings.journeyFollow == false or not (S.playing or S.dragging) then return end
-    if InCombatLockdown() then return end
-    local idx = Find(S.cur)
-    local p = S.pts[math.max(1, idx)]
+    if not cam.follow then return end
+    local p = S.pts[math.max(1, Find(S.cur))]
     if not p or not p.map then return end
-    if U[math.max(1, idx)] then lastFollow = nil return end -- on the map shown: nothing to do
-    if p.map == lastFollow or p.map == WorldMapFrame:GetMapID() then return end
-    lastFollow = p.map
-    pcall(WorldMapFrame.SetMapID, WorldMapFrame, p.map)
+    local want = MapFor(p.map)
+    if want and want ~= mapID then
+        SetMap(want)
+        cam.snap = true -- straight to the marker on the new map, no glide across it
+    end
+end
+
+-- The camera glides after the marker while following.
+local function MoveCamera(dt)
+    if not cam.follow or not markU then return end
+    local tx, ty = markU * mapW, markV * mapH
+    if cam.snap then
+        cam.x, cam.y, cam.snap = tx, ty, nil
+    else
+        local k = math.min(1, dt * 5)
+        cam.x, cam.y = cam.x + (tx - cam.x) * k, cam.y + (ty - cam.y) * k
+    end
+    PlaceCanvas()
 end
 
 -- Your gear at time t: the latest snapshot before it (or the first one there is), with the
@@ -882,7 +1265,7 @@ local function GearAt(t)
     for slot, id in pairs(base.gear) do gear[slot] = id end
     for _, ev in ipairs(S.equips or {}) do
         if ev.t > t then break end
-        if ev.t > base.t then gear[ev.slot] = ev.id end
+        if ev.t > base.t then gear[ev.slot] = ev.id ~= 0 and ev.id or nil end
     end
     local sig = {}
     for slot = 1, 19 do sig[#sig + 1] = tostring(gear[slot] or 0) end
@@ -905,9 +1288,10 @@ end
 
 local function EnsurePortrait()
     if hero or not bar then return hero end
-    local box = CreateFrame("Frame", nil, bar, "BackdropTemplate")
-    box:SetSize(150, 210)
-    box:SetPoint("TOPLEFT", WorldMapFrame.ScrollContainer, "TOPLEFT", 10, -10)
+    local box = CreateFrame("Frame", nil, win, "BackdropTemplate")
+    box:SetSize(PORTRAIT_W, PORTRAIT_H)
+    box:SetPoint("TOPLEFT", view, "TOPLEFT", 8, -8) -- PlaceSide moves it into the column
+    box:SetFrameLevel(view:GetFrameLevel() + 50)
     box:SetBackdrop({ bgFile = WHITE, edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
         insets = { left = 3, right = 3, top = 3, bottom = 3 } })
     box:SetBackdropColor(0.06, 0.05, 0.04, 0.85)
@@ -973,12 +1357,16 @@ local function Hero()
     local box = EnsurePortrait()
     if not box then return end
     if Hidden("hero") or S.whole or #S.pts == 0 and #S.events == 0 then
-        box:Hide()
+        if box:IsShown() then
+            box:Hide()
+            PlaceSide()
+        end
         lastCur = nil
         return
     end
     if not box:IsShown() then
         box:Show()
+        PlaceSide()
         pcall(box.model.SetUnit, box.model, "player")
         box.gearSig = nil
     end
@@ -1008,8 +1396,8 @@ local prevCur -- the moment shown at the last draw
 local function Draw()
     dirty = false
     Follow()
+    if layoutDirty then Layout() end
     if not holder then return end
-    local canvas = Canvas()
     local W, H = canvas:GetWidth(), canvas:GetHeight()
     local idx = Find(S.cur)
     local k = S.whole and nLines or LinesUpTo(idx)
@@ -1029,6 +1417,7 @@ local function Draw()
 
     local u, v, nxt, at = Position(S.cur)
     if S.whole or Hidden("route") then u = nil end
+    markU, markV = u, v
     if u then
         marker:ClearAllPoints()
         marker:SetPoint("CENTER", canvas, "TOPLEFT", u * W, -v * H)
@@ -1054,7 +1443,6 @@ local function Draw()
     local forward = not S.whole and (S.playing or S.dragging) and prevCur and S.cur > prevCur
         and S.cur - prevCur <= JUMP_T
     if prevCur and (S.cur < prevCur or S.whole) then StopAll() end
-    local withNotes = forward and ns.db.settings.journeyNotes ~= false
     local function Turn(f, isDot)
         local on = S.whole or f.t <= S.cur
         if on == f.on then return end
@@ -1062,7 +1450,6 @@ local function Draw()
         if on and forward and f.t > prevCur then
             f:SetAlpha(0)
             Pop(f, isDot)
-            if not isDot and withNotes and f.entry then ShowNote(f, NoteText(f.entry)) end
         else
             if f.anim then EndAnim(f) end
             f:SetAlpha(f.hover and 1 or f.settle)
@@ -1073,6 +1460,7 @@ local function Draw()
     for i = 1, nDots do Turn(dotFrames[i], true) end
     prevCur = S.cur
     Hero()
+    SyncLog(forward)
 end
 
 ------------------------------------------------------------------------------
@@ -1231,25 +1619,43 @@ local function SetCur(t)
     UpdateBar()
 end
 
--- Moves the map to where the range starts if the map shown doesn't hold any of it (out of
--- combat only).
-local function FitMap()
-    if InCombatLockdown() or not (WorldMapFrame and WorldMapFrame:IsShown()) then return end
-    local inst = MapInstance(WorldMapFrame:GetMapID())
-    local first
-    for _, p in ipairs(S.pts) do
-        if p.inst == inst then return end
-        first = first or p
+-- The whole route: the camera stops following and shows all of the map where the range ends.
+local function Overview()
+    cam.follow, cam.zoom = false, 1
+    local p = S.pts[#S.pts]
+    if p and p.map then
+        SetMap(MapFor(p.map))
+    elseif not mapID then
+        local ok, here = pcall(C_Map.GetBestMapForUnit, "player")
+        SetMap(ok and SafeNumber(here) or 1415)
     end
-    if first and first.map then pcall(WorldMapFrame.SetMapID, WorldMapFrame, first.map) end
+    PlaceCanvas()
+    if UpdateMapButtons then UpdateMapButtons() end
+end
+
+-- Following: zoomed in on the marker (as far as last time), which the camera then keeps centred.
+local function StartFollow()
+    cam.follow, cam.snap = true, true
+    cam.zoom = ns.db.settings.journeyZoom or FOLLOW_ZOOM
+    Follow()
+    PlaceCanvas()
+    dirty = true
+    if UpdateMapButtons then UpdateMapButtons() end
+end
+
+-- Clicking a line in the log: that moment, followed.
+JumpTo = function(t)
+    S.whole = false
+    lastK = nil
+    SetCur(t)
+    StartFollow()
 end
 
 local function SelectDay(index)
-    lastFollow = nil
     S.index = index
     Load()
-    layoutDirty = true
-    FitMap()
+    layoutDirty, logDirty = true, true
+    Overview()
     if bar then
         UpdateTicks()
         UpdateBar()
@@ -1368,15 +1774,42 @@ local function OnUpdate(_, dt)
         Load()
         if not atEnd then S.cur = math.min(cur, S.t1) end
         S.whole = whole
-        layoutDirty, dirty = true, true
+        layoutDirty, dirty, logDirty = true, true, true
         UpdateTicks()
         UpdateBar()
     end
     elapsed = elapsed + dt
     if elapsed < FRAME then return end
+    local step = elapsed
     elapsed = 0
+    -- Dragging the map: the camera goes with the cursor.
+    local pan = S.pan
+    if pan then
+        if not IsMouseButtonDown("LeftButton") then
+            S.pan = nil
+        else
+            local x, y = GetCursorPosition()
+            local es, s = view:GetEffectiveScale(), canvas.s or 1
+            local dx, dy = x / es - pan.x, y / es - pan.y
+            -- A real drag (not just a click) stops following.
+            if not pan.moved and dx * dx + dy * dy > 16 then
+                pan.moved = true
+                if cam.follow then
+                    cam.follow = false
+                    if UpdateMapButtons then UpdateMapButtons() end
+                end
+            end
+            if pan.moved then
+                cam.x = pan.camX - dx / s
+                cam.y = pan.camY + dy / s
+                PlaceCanvas()
+            end
+        end
+    end
     if layoutDirty then pcall(Layout) end
     if dirty then pcall(Draw) end
+    MoveCamera(step)
+    if scaleDirty then pcall(ApplyScale) end
 end
 
 local function SmallButton(parent, text, w)
@@ -1408,17 +1841,15 @@ local function ArrowButton(parent, dir)
 end
 
 local function BuildBar()
-    local sc = WorldMapFrame.ScrollContainer
-    bar = CreateFrame("Frame", "CaptainsLogJourneyBar", WorldMapFrame, "BackdropTemplate")
-    bar:SetPoint("BOTTOMLEFT", sc, "BOTTOMLEFT", 8, 8)
-    bar:SetPoint("BOTTOMRIGHT", sc, "BOTTOMRIGHT", -8, 8)
+    bar = CreateFrame("Frame", "CaptainsLogJourneyBar", win, "BackdropTemplate")
+    bar:SetPoint("BOTTOMLEFT", 10, 10)
+    bar:SetPoint("BOTTOMRIGHT", -10, 10)
     bar:SetHeight(66)
     bar:SetBackdrop({ bgFile = WHITE, edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12,
         insets = { left = 3, right = 3, top = 3, bottom = 3 } })
     bar:SetBackdropColor(0.10, 0.06, 0.03, 0.88)
     bar:SetBackdropBorderColor(0.78, 0.62, 0.32, 1)
     bar:EnableMouse(true)
-    bar:Hide()
 
     local prev = ArrowButton(bar, "Prev")
     prev:SetPoint("TOPLEFT", 8, -6)
@@ -1441,7 +1872,7 @@ local function BuildBar()
         else
             if S.whole or S.cur >= S.t1 then SetCur(S.t0) end
             S.whole, S.playing = false, true
-            dirty = true
+            StartFollow()
         end
         UpdateBar()
     end)
@@ -1457,6 +1888,7 @@ local function BuildBar()
     bar.whole:SetScript("OnClick", function()
         S.whole, S.playing = true, false
         SetCur(S.t1)
+        Overview()
     end)
     Tip(bar.whole, L["Whole route"], L["Stops playing and draws the whole route, with everything that happened along it."])
 
@@ -1469,11 +1901,11 @@ local function BuildBar()
         edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
     menu:SetBackdropColor(0.08, 0.06, 0.04, 0.95)
     menu:SetPoint("BOTTOMLEFT", bar.show, "TOPLEFT", 0, 4)
-    menu:SetFrameStrata("DIALOG")
+    menu:SetFrameStrata("FULLSCREEN_DIALOG")
     menu:EnableMouse(true)
     menu:Hide()
     local function Changed()
-        layoutDirty, dirty, lastK = true, true, nil
+        layoutDirty, dirty, lastK, logDirty = true, true, nil, true
         UpdateTicks()
         UpdateBar()
     end
@@ -1511,40 +1943,28 @@ local function BuildBar()
             st.journeyHide[g.key] = not on
         end)
     end
-    Row(#GROUPS + 3, L["You, in your gear at the time"], function()
+    Row(#GROUPS + 2, L["You, in your gear at the time"], function()
         return not Hidden("hero")
     end, function(on)
         local st = ns.db.settings
         st.journeyHide = st.journeyHide or {}
         st.journeyHide.hero = (not on) or nil
     end)
-    Row(#GROUPS + 2, L["Follow your route across maps"], function()
-        return ns.db.settings.journeyFollow ~= false
-    end, function(on) ns.db.settings.journeyFollow = on end)
-    Row(#GROUPS + 4, L["Squeeze quiet stretches"], function()
+    Row(#GROUPS + 3, L["Squeeze quiet stretches"], function()
         return ns.db.settings.journeyCompress ~= false
     end, function(on) ns.db.settings.journeyCompress = on end)
-    Row(#GROUPS + 6, L["Pause a moment on the big ones"], function()
+    Row(#GROUPS + 5, L["Pause a moment on the big ones"], function()
         return ns.db.settings.journeyHold ~= false
     end, function(on) ns.db.settings.journeyHold = on end)
-    Row(#GROUPS + 5, L["Notes as things happen"], function()
+    Row(#GROUPS + 4, L["Log down the side"], function()
         return ns.db.settings.journeyNotes ~= false
     end, function(on)
         ns.db.settings.journeyNotes = on
-        if not on then StopAll() end
+        PlaceSide()
     end)
-    menu:SetSize(260, 12 + (#GROUPS + 6) * 22)
+    menu:SetSize(260, 12 + (#GROUPS + 5) * 22)
     bar.show:SetScript("OnClick", function() menu:SetShown(not menu:IsShown()) end)
     bar.menu = menu
-
-    local close = CreateFrame("Button", nil, bar, "UIPanelCloseButton")
-    close:SetSize(24, 24)
-    close:SetPoint("TOPRIGHT", 0, 0)
-    close:SetScript("OnClick", function() JM.Close() end)
-
-    local title = UI.Text(bar, 11, { 0.85, 0.75, 0.55 }, UI.HEADING_FONT)
-    title:SetPoint("RIGHT", close, "LEFT", -4, 0)
-    title:SetText(L["Journey map"])
 
     -- The time bar: click to jump, drag to scrub.
     bar.time = UI.Text(bar, 12, { 0.98, 0.9, 0.7 })
@@ -1588,7 +2008,9 @@ local function BuildBar()
             end
         end
         if S.snap then SetCur(S.snap.t) end
+        local wasWhole = S.whole
         S.dragging, S.playing, S.whole = true, false, false
+        if wasWhole then StartFollow() end
         lastK = nil
         UpdateBar()
     end)
@@ -1600,21 +2022,211 @@ local function BuildBar()
     end)
     Tip(hit, L["Time bar"], L["Click to jump to a moment, or drag to go back and forth. The marks are things written in the log."])
 
-    bar:SetScript("OnUpdate", OnUpdate)
-    bar:SetScript("OnShow", function()
-        layoutDirty = true
-        if holder then holder:Show() end
+end
+
+------------------------------------------------------------------------------
+-- The window
+------------------------------------------------------------------------------
+
+local function SaveWindow()
+    local point, _, rel, x, y = win:GetPoint(1)
+    ns.db.settings.journeyWindow = { w = math.floor(win:GetWidth() + 0.5), h = math.floor(win:GetHeight() + 0.5),
+        point = point, rel = rel, x = x, y = y }
+end
+
+-- Zone or continent: the map the moment shown is on, as the toggle asks.
+local function ShowZoneOrContinent()
+    local p = S.pts[math.max(1, Find(S.cur))]
+    if not (p and p.map) then return end
+    SetMap(MapFor(p.map))
+    if cam.follow then
+        cam.snap = true
+    else
+        cam.zoom = 1
+        PlaceCanvas()
+    end
+end
+
+local function BuildView()
+    view = CreateFrame("Frame", nil, win)
+    view:SetPoint("TOPLEFT", 12, -34)
+    view:SetPoint("BOTTOMRIGHT", -12, 82)
+    view:SetClipsChildren(true)
+    view:EnableMouse(true)
+    view:EnableMouseWheel(true)
+    local bg = view:CreateTexture(nil, "BACKGROUND", nil, -8)
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.05, 0.04, 0.03, 1)
+
+    canvas = CreateFrame("Frame", nil, view)
+    canvas:SetSize(mapW, mapH)
+    canvas:SetPoint("TOPLEFT")
+    canvas:SetClipsChildren(true) -- the art's last tiles run past its edge
+
+    -- Things over the map: the zone's name, Follow, Zone / Continent.
+    local over = CreateFrame("Frame", nil, win)
+    over:SetAllPoints(view)
+    over:SetFrameLevel(view:GetFrameLevel() + 40)
+    canvas.empty = UI.Text(over, 13, { 0.85, 0.75, 0.55 })
+    canvas.empty:SetPoint("CENTER")
+    canvas.empty:SetText(L["There's no map of this place."])
+    canvas.empty:Hide()
+    local zone = UI.Text(over, 16, { 0.98, 0.9, 0.7 }, UI.HEADING_FONT)
+    zone:SetPoint("TOPRIGHT", -10, -8)
+    zone:SetShadowOffset(1, -1)
+    view.zone = zone
+
+    local follow = CreateFrame("Button", nil, over, "UIPanelButtonTemplate")
+    follow:SetSize(80, 20)
+    follow:SetText(L["Follow"])
+    follow:SetPoint("TOPRIGHT", zone, "BOTTOMRIGHT", 0, -6)
+    follow:SetScript("OnClick", function()
+        if cam.follow then
+            cam.follow = false
+            UpdateMapButtons()
+        else
+            if S.whole then
+                S.whole = false
+                lastK = nil
+            end
+            StartFollow()
+            UpdateBar()
+        end
     end)
-    bar:SetScript("OnHide", function()
-        S.playing, S.dragging = false, false
+    Tip(follow, L["Follow"], L["Keeps you in the middle of the map, from zone to zone. Dragging the map stops it; click to follow again."])
+    local zc = CreateFrame("Button", nil, over, "UIPanelButtonTemplate")
+    zc:SetSize(80, 20)
+    zc:SetPoint("RIGHT", follow, "LEFT", -4, 0)
+    zc:SetScript("OnClick", function()
+        continent = not continent
+        ShowZoneOrContinent()
+        UpdateMapButtons()
+    end)
+    Tip(zc, L["Zone / Continent"], L["Shows the zone you were in, or the whole continent around it."])
+    UpdateMapButtons = function()
+        if cam.follow then follow:LockHighlight() else follow:UnlockHighlight() end
+        zc:SetText(continent and L["Zone"] or L["Continent"])
+    end
+    UpdateMapButtons()
+
+    -- Mouse wheel zooms (on the cursor; on you while following), dragging pans.
+    view:SetScript("OnMouseWheel", function(_, delta)
+        local old = canvas.s or CamScale()
+        local z = math.max(1, math.min(MAX_ZOOM, cam.zoom * (delta > 0 and 1.25 or 0.8)))
+        if z == cam.zoom then return end
+        cam.zoom = z
+        if cam.follow then
+            ns.db.settings.journeyZoom = z
+        else
+            local x, y = GetCursorPosition()
+            local es = view:GetEffectiveScale()
+            local vw, vh = view:GetWidth(), view:GetHeight()
+            local px, py = x / es - view:GetLeft() - vw / 2, view:GetTop() - y / es - vh / 2
+            local mx, my = cam.x + px / old, cam.y + py / old
+            local s = CamScale()
+            cam.x, cam.y = mx - px / s, my - py / s
+        end
+        PlaceCanvas()
+    end)
+    view:SetScript("OnMouseDown", function(_, button)
+        if button ~= "LeftButton" then return end
+        local x, y = GetCursorPosition()
+        local es = view:GetEffectiveScale()
+        S.pan = { x = x / es, y = y / es, camX = cam.x, camY = cam.y }
+    end)
+    view:SetScript("OnMouseUp", function() S.pan = nil end)
+    view:SetScript("OnSizeChanged", function() PlaceCanvas() end)
+end
+
+local function BuildWindow()
+    win = CreateFrame("Frame", "CaptainsLogJourney", UIParent, "BackdropTemplate")
+    local saved = ns.db.settings.journeyWindow
+    win:SetSize(saved and saved.w or 900, saved and saved.h or 620)
+    if saved and saved.point then
+        win:SetPoint(saved.point, UIParent, saved.rel or saved.point, saved.x or 0, saved.y or 0)
+    else
+        win:SetPoint("CENTER")
+    end
+    win:SetFrameStrata("DIALOG")
+    win:SetToplevel(true)
+    win:SetClampedToScreen(true)
+    win:SetMovable(true)
+    win:SetResizable(true)
+    if win.SetResizeBounds then
+        win:SetResizeBounds(700, 480)
+    elseif win.SetMinResize then
+        win:SetMinResize(700, 480)
+    end
+    win:EnableMouse(true)
+    win:RegisterForDrag("LeftButton")
+    win:SetScript("OnDragStart", win.StartMoving)
+    win:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        SaveWindow()
+    end)
+    -- The book's leather cover with a gilt edge.
+    win:SetBackdrop({ bgFile = WHITE, edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 } })
+    win:SetBackdropColor(0.27, 0.15, 0.07, 1)
+    win:SetBackdropBorderColor(0.78, 0.62, 0.32, 1)
+    tinsert(UISpecialFrames, "CaptainsLogJourney")
+    win:Hide()
+
+    local title = UI.Text(win, 16, { 0.98, 0.9, 0.7 }, UI.HEADING_FONT)
+    title:SetPoint("TOP", 0, -10)
+    title:SetText(L["Journey"])
+    local close = CreateFrame("Button", nil, win, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", 2, 2)
+
+    BuildView()
+    BuildSide()
+    PlaceSide()
+    BuildBar()
+
+    local grip = CreateFrame("Button", nil, win)
+    grip:SetSize(16, 16)
+    grip:SetPoint("BOTTOMRIGHT", -3, 3)
+    grip:SetFrameLevel(bar:GetFrameLevel() + 10)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    grip:SetScript("OnMouseDown", function() win:StartSizing("BOTTOMRIGHT") end)
+    grip:SetScript("OnMouseUp", function()
+        win:StopMovingOrSizing()
+        SaveWindow()
+    end)
+
+    win:SetScript("OnUpdate", OnUpdate)
+    win:SetScript("OnShow", function()
+        sinceLive = 5 -- the route as it is now, straight away
+        layoutDirty = true
+    end)
+    win:SetScript("OnHide", function()
+        S.playing, S.dragging, S.pan = false, false, nil
         StopAll()
+        if bar.menu then bar.menu:Hide() end
+        UpdateBar()
     end)
 end
 
+------------------------------------------------------------------------------
+-- The world map's button (a plain frame of ours; the map itself is left alone)
+------------------------------------------------------------------------------
+
+local function UpdateToggle()
+    if not toggle then return end
+    local wanted = not (ns.db and ns.db.settings.journeyButton == false)
+    toggle:SetShown(wanted)
+end
+JM.UpdateToggle = UpdateToggle
+
 local function BuildToggle()
+    if toggle or not (WorldMapFrame and WorldMapFrame.ScrollContainer) then return end
     toggle = CreateFrame("Button", "CaptainsLogJourneyToggle", WorldMapFrame)
     toggle:SetSize(28, 28)
     toggle:SetPoint("BOTTOMRIGHT", WorldMapFrame.ScrollContainer, "BOTTOMRIGHT", -8, 8)
+    local child = WorldMapFrame.ScrollContainer.Child
+    toggle:SetFrameLevel((child and child:GetFrameLevel() or WorldMapFrame:GetFrameLevel()) + 2200)
     local icon = toggle:CreateTexture(nil, "ARTWORK")
     icon:SetPoint("TOPLEFT", 3, -3)
     icon:SetPoint("BOTTOMRIGHT", -3, 3)
@@ -1625,48 +2237,18 @@ local function BuildToggle()
     border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
     border:SetTexCoord(0.2, 0.8, 0.2, 0.8)
     toggle:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-    toggle:SetScript("OnClick", function() JM.Open() end)
-    Tip(toggle, L["Journey map"], L["Captain's Log: play back your route on this map, day by day."])
+    toggle:SetScript("OnClick", function() JM.Show() end)
+    Tip(toggle, L["Journey"], L["Captain's Log: play back your journey, day by day."])
+    UpdateToggle()
 end
-
-local function UpdateToggle()
-    if not toggle then return end
-    local level = Canvas() and Canvas():GetFrameLevel() + 2200
-    if level then toggle:SetFrameLevel(level) end
-    local wanted = not (ns.db and ns.db.settings.journeyButton == false)
-    toggle:SetShown(wanted and not (bar and bar:IsShown()))
-end
-JM.UpdateToggle = UpdateToggle
 
 ------------------------------------------------------------------------------
 -- Opening and closing
 ------------------------------------------------------------------------------
 
-local ready = false
-
-local function Setup()
-    if ready or not (WorldMapFrame and WorldMapFrame.ScrollContainer) then return end
-    ready = true
-    BuildBar()
-    BuildToggle()
-    local function relayout()
-        if bar and bar:IsShown() then layoutDirty = true end
-    end
-    hooksecurefunc(WorldMapFrame, "OnMapChanged", relayout)
-    if WorldMapFrame.OnCanvasScaleChanged then hooksecurefunc(WorldMapFrame, "OnCanvasScaleChanged", relayout) end
-    WorldMapFrame.ScrollContainer:HookScript("OnSizeChanged", relayout)
-    WorldMapFrame:HookScript("OnShow", function()
-        sinceLive = 5 -- the route as it is now, straight away
-        relayout()
-        UpdateToggle()
-    end)
-    UpdateToggle()
-end
-
--- Opens the bar on the map (already open) at `key` (a day; default the latest).
-function JM.Open(key)
-    if not ready then pcall(Setup) end
-    if not bar then return end
+-- Opens the window on day `key` (default the latest). Fine in combat: it's all ours.
+function JM.Show(key)
+    if not win then BuildWindow() end
     CollectDays()
     local index = #S.days
     if key then
@@ -1674,54 +2256,30 @@ function JM.Open(key)
             if k == key then index = i end
         end
     end
-    bar:Show()
-    UpdateToggle()
-    bar:SetFrameLevel((Canvas() and Canvas():GetFrameLevel() or 0) + 2300)
-    if holder then holder:Show() end
+    win:Show()
+    win:Raise()
     SelectDay(index)
 end
-
--- From the book: opens the world map (out of combat) and the bar on day `key`.
-function JM.Show(key)
-    if not WorldMapFrame then return end
-    if not WorldMapFrame:IsShown() then
-        if InCombatLockdown() or not (ns.MapPins and ns.MapPins.Open) then
-            ns.Print(L["The journey map opens once the fight is over."])
-            return
-        end
-        CollectDays()
-        local day = key and ns.db.days[key]
-        local mapID
-        for _, s in ipairs(day and day.path or {}) do
-            mapID = mapID or s.m
-        end
-        ns.MapPins.Open(mapID)
-    end
-    JM.Open(key)
-end
+JM.Open = JM.Show
 
 function JM.Close()
-    S.playing, S.dragging = false, false
-    if bar then bar:Hide() end
-    if holder then holder:Hide() end
-    UpdateToggle()
+    if win then win:Hide() end
 end
 
 if WorldMapFrame then
-    pcall(Setup)
+    pcall(BuildToggle)
 else
     local f = CreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
     f:SetScript("OnEvent", function(self, _, name)
         if name == "Blizzard_WorldMap" then
             self:UnregisterAllEvents()
-            pcall(Setup)
+            pcall(BuildToggle)
         end
     end)
 end
 
-
--- /log journey: what the journey map sees, to tell a route that wasn't recorded from one that
+-- /log journey: what the journey window sees, to tell a route that wasn't recorded from one that
 -- doesn't draw.
 function ns.JourneyReport()
     local P = ns.Print
@@ -1730,11 +2288,11 @@ function ns.JourneyReport()
     local key = date("%Y-%m-%d")
     local flat = ns.Journey.Decode(key)
     P(("today: %d route points"):format(#flat))
-    local mapID = WorldMapFrame and WorldMapFrame:GetMapID()
-    P(("world map: %s (its instance: %s)"):format(tostring(mapID), tostring(MapInstance(mapID))))
+    local shown = mapID or here
+    P(("journey window map: %s"):format(tostring(shown)))
     local p = flat[#flat]
-    if p and mapID then
-        local u, v = ToMap(p.inst, p.y, p.x, mapID)
+    if p and shown then
+        local u, v = ToMap(p.inst, p.y, p.x, shown)
         P(("last point (instance %s) on that map: %s, %s"):format(tostring(p.inst), tostring(u), tostring(v)))
     end
     local placed = 0

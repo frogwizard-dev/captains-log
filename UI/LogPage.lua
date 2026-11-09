@@ -434,9 +434,9 @@ function Page:RenderTimeline(key)
         doc:Faded(L["Nothing written for this day yet."])
     end
     if d.path and #d.path > 0 and ns.JourneyMap then
-        doc:Row("|cff6b5d4f" .. L["Your route this day is on the journey map."] .. "|r", {
-            { L["Show on map"], icon = "Interface\\Icons\\INV_Misc_Map_01",
-                tip = { L["Journey map"], L["Plays this day back on your world map: your route, and where each thing in the log happened."] },
+        doc:Row("|cff6b5d4f" .. L["Your route this day can be played back."] .. "|r", {
+            { L["Play your journey"], icon = "Interface\\Icons\\INV_Misc_Map_01",
+                tip = { L["Journey"], L["Plays this day back in the Journey window: your route, and where each thing in the log happened."] },
                 onClick = function() ns.JourneyMap.Show(key) end },
         })
     end

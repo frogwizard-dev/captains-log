@@ -209,11 +209,11 @@ function Page:RenderOverview(doc, levels)
     if online and online > 0 then doc:Faded(L["The book has watched %s of it."]:format(UI.LongDuration(online))) end
 
     doc:Heading(L["Journey map"], {
-        { L["Show on map"], icon = "Interface\\Icons\\INV_Misc_Map_01",
-            tip = { L["Journey map"], L["Plays your route back on the world map, day by day, with a time bar to scrub through it."] },
+        { L["Play your journey"], icon = "Interface\\Icons\\INV_Misc_Map_01",
+            tip = { L["Journey"], L["Plays your route back in a window of its own, day by day, with a time bar to scrub through it."] },
             onClick = function() if ns.JourneyMap then ns.JourneyMap.Show(ns.Today()) end end },
     })
-    doc:Faded(L["Every day's route is drawn on the world map, with where each thing in the log happened."])
+    doc:Faded(L["Every day's route can be played back on a map, with where each thing in the log happened."])
 
     doc:Heading(L["Levels"])
     if #levels == 0 then

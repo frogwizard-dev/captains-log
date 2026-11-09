@@ -382,6 +382,13 @@ ns.On("PLAYER_EQUIPMENT_CHANGED", function(slot)
         if pending[slot] ~= p or p.token ~= token then return end
         pending[slot] = nil
         local now = Num(Call(GetInventoryItemID, "player", slot))
+        if now ~= p.orig then
+            -- Every change that held, for the journey map's portrait (day.gc: "t,slot,id;..."
+            -- with id 0 for a slot emptied). The log only tells of upgrades.
+            local day = ns.Day()
+            local tok = ("%d,%d,%d"):format(time(), slot, now or 0)
+            if #(day.gc or "") < 20000 then day.gc = day.gc and (day.gc .. ";" .. tok) or tok end
+        end
         if now and now ~= p.orig and IsUpgrade(now, p.orig) then
             ns.Log("equip", { slot = slot, id = now, old = p.orig })
         end

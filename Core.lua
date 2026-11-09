@@ -257,6 +257,8 @@ SlashCmdList.CAPTAINSLOG = function(msg)
         ns.Print(L["kill debug messages %s"]:format(ns.db.settings.debug and L["on"] or L["off"]))
     elseif msg == "journey" then
         if ns.JourneyReport then ns.JourneyReport() end
+    elseif msg == "journey play" then
+        if ns.JourneyMap then ns.JourneyMap.Show() end
     elseif msg == "picture" or msg == "photo" then
         ns.TakePicture()
     elseif msg == "probe" or msg:match("^probe ") then

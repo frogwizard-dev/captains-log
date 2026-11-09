@@ -1,5 +1,15 @@
 # Captain's Log
 
+## 0.9.2
+
+- Your journey now plays in **a Journey window of its own** instead of on the world map, so the world map is left alone (no more blocked quest pins in combat). Move it and resize it as you like; it remembers where you put it, and Escape closes it.
+- The window draws the zone maps itself: scroll to zoom, drag to look around. While it plays, the camera follows you smoothly from zone to zone. Drag the map to look away, and click "Follow" to pick you back up. "Zone / Continent" switches to the whole continent.
+- **A log runs down the window's left side** under your portrait: everything that has happened so far in the playback, with the time, newest at the bottom. It keeps up as you play and doesn't jump back down while you're scrolled up reading. Hover a line for the full entry; click it to jump there. Turn it off with "Log down the side" in the Show menu to give the map the whole window. (It replaces the notes that faded away.)
+- Open it with "Play your journey" on the Character page or a day in the Log, with `/log journey play`, or with the little book button on the world map.
+- The journey map's portrait changes with **every piece of gear you put on or take off**, not just upgrades and each level's snapshot (from now on; days before keep the upgrades they logged).
+- The portrait is bigger.
+- Big maps with sharper art for close up switch to it as you zoom in.
+
 ## 0.9.1
 
 - **Jumps** are counted: every hop on the ground, for life and for the day, on each day's page in the Log, on the Character page and in the Ledger's tallies.
