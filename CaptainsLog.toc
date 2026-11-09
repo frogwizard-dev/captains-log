@@ -2,7 +2,7 @@
 ## Title: Captain's Log
 ## Category: Frog Wizard
 ## Notes: A personal journal that writes itself: a bestiary, a daily log, quests, people, lands, dungeons and fishing, all linked together and pinned to your world map.
-## Version: 0.9.0
+## Version: 0.9.1
 ## X-Curse-Project-ID: 1719659
 ## SavedVariables: CaptainsLogAccount
 ## SavedVariablesPerCharacter: CaptainsLogDB

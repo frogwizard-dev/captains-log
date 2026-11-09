@@ -162,7 +162,9 @@ local function GatherKind(spellID)
 end
 
 -- Several of the same thing in a row share one line.
+local GATHER_TALLY = { herb = "herbs", ore = "ore", skin = "skins" }
 local function LogGather(what, id, n)
+    if GATHER_TALLY[what] and ns.Count then ns.Count(GATHER_TALLY[what]) end
     local events = ns.Day().events
     for i = #events, math.max(1, #events - 10), -1 do
         local e = events[i]

@@ -34,6 +34,10 @@ local STATS = {
     { "bosses", "Interface\\Icons\\INV_Misc_Head_Dragon_01" },
     { "duelsWon", "Interface\\Icons\\Ability_Warrior_Challange" },
     { "duelsLost", "Interface\\Icons\\Ability_Warrior_Challange" },
+    { "jumps", "Interface\\Icons\\Ability_Rogue_Sprint" },
+    { "herbs", "Interface\\Icons\\INV_Misc_Herb_07" },
+    { "ore", "Interface\\Icons\\INV_Ore_Copper_01" },
+    { "skins", "Interface\\Icons\\INV_Misc_Pelt_Wolf_01" },
 }
 local XP = { "xpKill", "xpQuest", "xpExplore", "xpRested" }
 

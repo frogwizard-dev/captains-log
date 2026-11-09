@@ -73,16 +73,14 @@ end
 -- Counters and milestones
 ------------------------------------------------------------------------------
 
--- 1, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000 ...
-local THRESHOLDS = { 1 }
-do
-    local base = 10
-    while base <= 1e9 do
-        THRESHOLDS[#THRESHOLDS + 1] = base
-        THRESHOLDS[#THRESHOLDS + 1] = base * 2.5
-        THRESHOLDS[#THRESHOLDS + 1] = base * 5
-        base = base * 10
-    end
+-- 1, 10, 50, then every 100 to 1000, every 250 to 10,000, every 500 to 50,000 and every 1000
+-- after that. Worked out as it goes rather than listed.
+local function NextMilestone(after)
+    if after < 1 then return 1 end
+    if after < 10 then return 10 end
+    if after < 50 then return 50 end
+    local step = after < 1000 and 100 or (after < 10000 and 250 or (after < 50000 and 500 or 1000))
+    return (math.floor(after / step) + 1) * step
 end
 
 -- Counters whose amounts are experience points: no milestones for them.
@@ -95,7 +93,55 @@ ns.STAT_NAMES = {
     looted = L["Items looted"], crafted = L["Items made"], flights = L["Flights taken"],
     hearths = L["Hearthstones used"], fish = L["Fish caught"], dungeons = L["Dungeons entered"],
     bosses = L["Bosses defeated"], duelsWon = L["Duels won"], duelsLost = L["Duels lost"],
+    jumps = L["Jumps"], herbs = L["Herbs picked"], ore = L["Ore mined"], skins = L["Hides skinned"],
 }
+
+-- Milestones said the way you'd say them: "You've jumped 200 times!", and the first time on its
+-- own ("Your first jump!").
+local SAID = {
+    kills = L["You've slain %s creatures!"], deaths = L["You've died %s times."],
+    quests = L["You've completed %s quests!"], looted = L["You've looted %s items!"],
+    crafted = L["You've made %s items!"], flights = L["You've taken %s flights!"],
+    hearths = L["You've hearthed home %s times!"], fish = L["You've caught %s fish!"],
+    dungeons = L["You've been into %s dungeons!"], bosses = L["You've defeated %s bosses!"],
+    duelsWon = L["You've won %s duels!"], duelsLost = L["You've lost %s duels."],
+    jumps = L["You've jumped %s times!"], herbs = L["You've picked %s herbs!"],
+    ore = L["You've mined %s ore!"], skins = L["You've skinned %s hides!"],
+}
+local SAID_FIRST = {
+    kills = L["Your first kill!"], deaths = L["Your first death."], quests = L["Your first quest done!"],
+    looted = L["Your first item looted!"], crafted = L["Your first item made!"],
+    flights = L["Your first flight!"], hearths = L["Your first trip home by hearthstone!"],
+    fish = L["Your first fish!"], dungeons = L["Your first dungeon!"], bosses = L["Your first boss defeated!"],
+    duelsWon = L["Your first duel won!"], duelsLost = L["Your first duel lost."],
+    jumps = L["Your first jump!"], herbs = L["Your first herb picked!"], ore = L["Your first ore mined!"],
+    skins = L["Your first hide skinned!"],
+}
+
+function ns.MilestoneSaying(stat, n)
+    if n == 1 and SAID_FIRST[stat] then return SAID_FIRST[stat] end
+    if SAID[stat] then return SAID[stat]:format(ns.Number(n)) end
+    return L["%s, %s."]:format(ns.StatName(stat), ns.Number(n))
+end
+
+
+-- Jumps: the jump key, on the ground (not mid-air, swimming, flying or on a flight), counted for
+-- life and for the day. A post-hook, so the jump itself is untouched.
+local lastJump = 0
+if JumpOrAscendStart then
+    hooksecurefunc("JumpOrAscendStart", function()
+        if not ns.db then return end
+        local now = GetTime()
+        if now - lastJump < 0.3 then return end
+        if (IsFalling and IsFalling()) or (IsSwimming and IsSwimming()) or (IsFlying and IsFlying())
+            or (UnitOnTaxi and UnitOnTaxi("player")) then return end
+        lastJump = now
+        ns.Count("jumps")
+        local day = ns.Day()
+        day.jumps = (day.jumps or 0) + 1
+        ns.Refresh() -- the count on an open page goes up as you jump
+    end)
+end
 
 function ns.StatName(stat)
     return ns.STAT_NAMES[stat] or stat
@@ -109,14 +155,17 @@ function ns.Count(stat, n)
     local new = old + n
     stats[stat] = new
     if QUIET[stat] then return end
-    for _, th in ipairs(THRESHOLDS) do
-        if th > new then break end
-        if old < th then
+    local th = NextMilestone(old)
+    while th <= new do
+        do
             ns.Log("milestone", { stat = stat, n = th })
-            if th >= 100 then
-                ns.Print(L["Milestone: %s, %s."]:format(ns.StatName(stat), ns.Number(th)))
-            end
+            -- Said in chat, every one, so it isn't missed: an icon, a gold "You've reached a
+            -- milestone!" and what it is, said plainly ("You've jumped 200 times!").
+            local msg = "|TInterface\\Icons\\Ability_Warrior_BattleShout:16:16:0:0|t |cffffd100"
+                .. L["You've reached a milestone!"] .. "|r |cffffffff" .. ns.MilestoneSaying(stat, th) .. "|r"
+            if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(msg) else ns.Print(msg) end
         end
+        th = NextMilestone(th)
     end
 end
 

@@ -242,6 +242,7 @@ local MILESTONES = {
     hearths = L["Your %s trip home by hearthstone."], fish = L["Your %s fish caught!"],
     dungeons = L["Your %s dungeon!"], bosses = L["Your %s boss defeated!"],
     duelsWon = L["Your %s duel won!"], duelsLost = L["Your %s duel lost."],
+    jumps = L["Your %s jump!"],
 }
 
 local WRITERS = {
@@ -331,9 +332,8 @@ local WRITERS = {
         return L["Your first %s."]:format(UI.ItemLink(ev.id, ev.q))
     end,
     milestone = function(ev)
-        local fmt = MILESTONES[ev.stat]
-        if fmt then return "|cff7a1f0d" .. fmt:format(Ordinal(ev.n)) .. "|r" end
-        return "|cff7a1f0d" .. L["Milestone: %s, %s."]:format(ns.StatName(ev.stat), ns.Number(ev.n or 0)) .. "|r"
+        local said = ns.MilestoneSaying and ns.MilestoneSaying(ev.stat, ev.n) or tostring(ev.n)
+        return "|cff7a1f0d" .. said .. "|r"
     end,
     death = function(ev)
         if ev.killer then return "|cff7a1f0d" .. L["Was slain by %s."]:format(Called(ev.killer, ev.classification)) .. "|r" end
@@ -461,6 +461,11 @@ function Page:RenderDay(key)
     if d.kills > 0 then doc:Line(L["Creatures slain: %s"]:format(ns.Number(d.kills))) end
     if d.discovered > 0 then doc:Line(L["New bestiary entries: %s"]:format(d.discovered)) end
     if (d.fish or 0) > 0 then doc:Line(L["Fish caught: %s"]:format(ns.Number(d.fish))) end
+    if (d.jumps or 0) > 0 then
+        local total = ns.db.stats and ns.db.stats.jumps
+        doc:Line(total and L["Jumps: %s (%s in all)"]:format(ns.Number(d.jumps), ns.Number(total))
+            or L["Jumps: %s"]:format(ns.Number(d.jumps)))
+    end
     if d.moneyIn > 0 then doc:Line(L["Coin earned: %s"]:format(ns.Money(d.moneyIn))) end
     if d.moneyOut > 0 then doc:Line(L["Coin spent: %s"]:format(ns.Money(d.moneyOut))) end
 

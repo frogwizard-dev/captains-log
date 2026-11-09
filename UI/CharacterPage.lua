@@ -203,6 +203,8 @@ function Page:RenderOverview(doc, levels)
     end
     local avg, n = AveragePerLevel()
     if avg then doc:Line(L["Average per level: %s (over %d levels)"]:format(ns.Duration(avg), n)) end
+    local jumps = ns.db.stats and ns.db.stats.jumps
+    if jumps and jumps > 0 then doc:Line(L["Jumps: %s"]:format(ns.Number(jumps))) end
     local online = ns.db.time and ns.db.time.online
     if online and online > 0 then doc:Faded(L["The book has watched %s of it."]:format(UI.LongDuration(online))) end
 

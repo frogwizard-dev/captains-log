@@ -1,5 +1,12 @@
 # Captain's Log
 
+## 0.9.1
+
+- **Jumps** are counted: every hop on the ground, for life and for the day, on each day's page in the Log, on the Character page and in the Ledger's tallies.
+- Every milestone is announced in chat, said plainly: "You've reached a milestone! You've jumped 200 times!" (and "Your first jump!" for the first). The log and journey map say them the same way.
+- New tallies: herbs picked, ore mined and hides skinned.
+- Milestones come more often: your 1st, 10th and 50th, then every 100 up to 1,000, every 250 up to 10,000, every 500 up to 50,000 and every 1,000 after that.
+
 ## 0.9.0
 
 - Journey map notes sit in a tidy list in the map's corner (with each thing's icon) instead of beside the icons, where they ran into each other, and the big moments (a level, a quest done, a death, a boss, a first item) hold the playback a moment so you can read them. Both can be turned off in the Show menu.
