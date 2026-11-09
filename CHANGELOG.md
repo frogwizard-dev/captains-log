@@ -1,5 +1,24 @@
 # Captain's Log
 
+## 0.9.0
+
+- Journey map notes sit in a tidy list in the map's corner (with each thing's icon) instead of beside the icons, where they ran into each other, and the big moments (a level, a quest done, a death, a boss, a first item) hold the playback a moment so you can read them. Both can be turned off in the Show menu.
+- **Things pop up as they happen** on the journey map: while it plays (or you drag forward), each icon bounces in as you reach it with a short note beside it ("Quest done: ...", "Level 11"), then fades back so your route stays easy to see. Hover any icon to bring it back. The notes can be turned off in the Show menu.
+- **Level ups stand out on the time bar** with a gold mark and the level number; click near one to jump right to it.
+- **Quiet stretches are squeezed** on the time bar (time away, standing about), so the busy parts get the room. Turn it off in the Show menu with "Squeeze quiet stretches".
+- A thin strip under the time bar shows where the most happened.
+- **Every kill on the map**: a small dot wherever you killed something, with its name and time when you hover it.
+- **Gathering**: herbs picked, ore mined and hides skinned are written in the log, and show on the map.
+- **Travel**: flights (where from, where to and how long), hearthstone trips, boat and zeppelin crossings, and your very first mount.
+- **Combat**: your fights show as red stretches of your route, and close calls (below 20% health and lived) get a line in the log.
+- **Stops**: inns you rest at, and the vendors, trainers and mailboxes you visit (once each a day).
+- **XP**: hover the time bar to see the experience you earned there, and turn on "XP" in the Show menu for dots on the map. The log also notes when your rested experience runs out.
+- **You on the journey map**: a portrait of your character in the map's corner while it plays, in the gear you had on at that moment (your level's snapshot plus each upgrade since), with your level under it. Passing a level up plays the level-up sound and a golden burst around you, and changes into the new gear. Can be hidden in the Show menu.
+- The journey map **follows you from map to map** as it plays or as you scrub: from Zephras Isle to Mulgore to the Barrens, it brings up the zone you were in at that moment (a map that already shows it, like a whole continent, stays). It can be turned off in the Show menu.
+- Each level's page on the Character page shows **you as you were**: a model of your character in the gear you had on then (drag it to turn it round).
+- Names on Forever include the surname: "Feral Streep", not just "Feral".
+- **Choose what the journey map shows**: the Show button on its bar lists your route and each kind of entry (quests, loot and gear, kills, deaths, levels and milestones, places, people, fishing, pictures). Tick as much or as little as you like; the time bar's marks follow, and your choice is kept.
+
 ## 0.8.0
 
 - **Character page** — a new page in the book about you: time played, how long you've been at this level and how long a level takes you on average, and every level you've reached with the date, how long it took and where. Click a level to see yourself as you were then: your gear, stats, health and mana, armour, talents, skills, coin and rested experience (snapshots are taken from now on, as you level).

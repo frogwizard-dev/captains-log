@@ -39,6 +39,7 @@ local function UpdateRoster()
     roster[key] = r
     local _, class = Call(UnitClass, "player")
     local _, race = Call(UnitRace, "player")
+    r.name = ns.FullName("player") or r.name -- with the surname, on Forever
     r.class = Str(class) or r.class
     r.race = Str(race) or r.race
     r.level = Num(Call(UnitLevel, "player")) or r.level

@@ -99,7 +99,7 @@ function Page:Render()
 
     local days, played = DayTotals()
     self.sub:SetText(string.format(L["%s, level %d %s  ·  %d %s, %s played"],
-        UnitName("player"), UnitLevel("player"), UnitClass("player"), days, days == 1 and L["day"] or L["days"],
+        ns.FullName("player"), UnitLevel("player"), UnitClass("player"), days, days == 1 and L["day"] or L["days"],
         ns.Duration(played)))
 
     local items = {}
@@ -377,6 +377,43 @@ local WRITERS = {
         local s = where and L["Took %s at %s"]:format(link, where) or L["Took %s"]:format(link)
         if p.caption then s = s .. ': "' .. p.caption .. '"' end
         return s .. "."
+    end,
+    gather = function(ev)
+        local what = (ev.n or 1) .. " " .. UI.ItemLink(ev.id)
+        local fmt = ({ herb = L["Picked %s."], ore = L["Mined %s."], skin = L["Skinned %s."], fish = L["Fished up %s."] })[ev.what]
+        return (fmt or L["Gathered %s."]):format(what)
+    end,
+    taxi = function(ev)
+        local took = ns.Duration(ev.s or 0)
+        if ev.from then return L["Flew from %s to %s in %s."]:format(ev.from, ev.to or "?", took) end
+        return L["Flew to %s in %s."]:format(ev.to or "?", took)
+    end,
+    hearth = function(ev)
+        if ev.from and ev.to then return L["Hearthed from %s home to %s."]:format(ev.from, ev.to) end
+        return L["Hearthed home to %s."]:format(ev.to or "?")
+    end,
+    mount = function()
+        return "|cff7a1f0d" .. L["Rode a mount for the first time!"] .. "|r"
+    end,
+    transport = function(ev)
+        return L["Crossed by boat or zeppelin from %s to %s."]:format(ev.from or "?", ev.to or "?")
+    end,
+    closecall = function(ev)
+        if ev.vs then return "|cff7a1f0d" .. L["A close call against %s: down to %d%% health."]:format(ev.vs, ev.pct or 0) .. "|r" end
+        return "|cff7a1f0d" .. L["A close call: down to %d%% health."]:format(ev.pct or 0) .. "|r"
+    end,
+    rest = function(ev)
+        return L["Rested at the inn in %s."]:format(ev.place or "?")
+    end,
+    visit = function(ev)
+        if ev.kind == "mail" then
+            return ev.place and L["Checked the mail in %s."]:format(ev.place) or L["Checked the mail."]
+        end
+        if ev.kind == "trainer" then return L["Trained with %s."]:format(ev.name or "?") end
+        return L["Traded with %s."]:format(ev.name or "?")
+    end,
+    restedgone = function()
+        return L["Your rested experience ran out."]
     end,
 }
 

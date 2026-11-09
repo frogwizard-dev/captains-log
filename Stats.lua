@@ -158,6 +158,7 @@ end)
 ns.On("PLAYER_DEAD", function() ns.Count("deaths") end)
 ns.On("QUEST_TURNED_IN", function(_, xp)
     ns.Count("quests")
+    if ns.Moments then ns.Moments.XPSource("q") end
     xp = Num(xp)
     if xp and xp > 0 then ns.Count("xpQuest", xp) end
 end)
@@ -194,6 +195,7 @@ local function Explored(args)
     if not xp then return end
     if lastExplore == args[1] and GetTime() - lastExploreAt < 5 then return end
     lastExplore, lastExploreAt = args[1], GetTime()
+    if ns.Moments then ns.Moments.XPSource("e") end
     ns.Count("xpExplore", xp)
 end
 
@@ -205,6 +207,7 @@ local function OnXP(msg)
         if not xp then return end
         local bonus = BONUS[pt.name] and tonumber((tostring(args[3] or "")):match("(%d+)")) or 0
         if bonus > xp then bonus = 0 end
+        if ns.Moments then ns.Moments.XPSource("k") end
         ns.Count("xpKill", xp - bonus)
         if bonus > 0 then ns.Count("xpRested", bonus) end
         return

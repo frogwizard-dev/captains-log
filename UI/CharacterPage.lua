@@ -73,7 +73,7 @@ end)
 
 function Page:Build(left, right)
     local W, H = ns.Book.CONTENT_W, ns.Book.CONTENT_H
-    self.sub = ns.Book:Header(left, UnitName("player") or L["Character"])
+    self.sub = ns.Book:Header(left, ns.FullName("player") or L["Character"])
     self.info = UI.Text(left, 12)
     self.info:SetPoint("TOPLEFT", 2, -62)
     self.info:SetWidth(W)
@@ -85,6 +85,46 @@ function Page:Build(left, right)
     self.doc = UI.Doc(right, W, H)
     self.doc.sf:SetPoint("TOPLEFT")
     self.selected = "overview"
+    self.model = self:BuildModel(self.doc.child, W)
+end
+
+-- You at a level, in the gear you had on then: a model of your character, undressed and dressed
+-- in the snapshot's items, in the top corner of the page (it scrolls with it). Drag to turn it.
+function Page:BuildModel(parent, W)
+    local ok, m = pcall(CreateFrame, "DressUpModel", nil, parent)
+    if not ok or not m then return nil end
+    m:SetSize(170, 270)
+    m:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -4, -36)
+    m:EnableMouse(true)
+    m:Hide()
+    local facing = 0.35
+    m:SetScript("OnMouseDown", function(self) self.dragX = GetCursorPosition() end)
+    m:SetScript("OnMouseUp", function(self) self.dragX = nil end)
+    m:SetScript("OnUpdate", function(self)
+        if not self.dragX then return end
+        local x = GetCursorPosition()
+        facing = facing + (x - self.dragX) * 0.012
+        self.dragX = x
+        pcall(self.SetFacing, self, facing)
+    end)
+    m:SetScript("OnModelLoaded", function(self)
+        pcall(self.SetFacing, self, facing)
+        self:Dress()
+    end)
+    function m:Dress()
+        local gear = self.gear
+        if not gear then return end
+        pcall(self.Undress, self)
+        for slot, id in pairs(gear) do
+            if slot ~= 0 and type(id) == "number" then pcall(self.TryOn, self, "item:" .. id) end
+        end
+    end
+    function m:ShowGear(gear)
+        self.gear = gear
+        self:Show()
+        if pcall(self.SetUnit, self, "player") then self:Dress() end
+    end
+    return m
 end
 
 function Page:Render()
@@ -133,6 +173,7 @@ function Page:Render()
 
     local doc = self.doc
     doc:Clear("character:" .. tostring(self.selected))
+    if self.model then self.model:Hide() end
     ns.Book:BackLink(doc)
     if self.selected == "time" then
         self:RenderTime(doc)
@@ -303,7 +344,7 @@ function Page:RenderRoster(doc)
         local realm, name = e.key:match("^(.-)%-([^%-]+)$")
         local className = r.class and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[r.class] or r.class or ""
         doc:Gap(2)
-        doc:Text(UI.ClassInk(r.class) .. (name or e.key) .. "|r  |cff6b5d4f" .. (realm or "") .. "|r", 13, nil, nil, 8)
+        doc:Text(UI.ClassInk(r.class) .. (r.name or name or e.key) .. "|r  |cff6b5d4f" .. (realm or "") .. "|r", 13, nil, nil, 8)
         doc:Line(L["Level %s %s"]:format(r.level or "?", className))
         local parts = {}
         if r.played then parts[#parts + 1] = L["%s played"]:format(UI.LongDuration(r.played)) end
@@ -336,6 +377,7 @@ function Page:RenderLevel(doc, lvl)
     end
 
     local snap = rec.snap
+    if snap and snap.gear and self.model then self.model:ShowGear(snap.gear) end
     if not snap then
         doc:Gap()
         doc:Faded(L["No snapshot of you at this level: they're taken as you reach each level from now on."])

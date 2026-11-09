@@ -248,6 +248,7 @@ local function Record(id, name, source, guid)
     m.kills = m.kills + 1
     m.lastKill = time()
     RecordSpot(m)
+    if ns.Moments then pcall(ns.Moments.Kill, id, m.name or name) end
     LogKill(id, m.name or name, m.classification, guid)
 
     local zone = ns.Zone()
@@ -420,6 +421,7 @@ local function TrackXP()
             day.xp = day.xp + gain
             local run = ns.ActiveRun()
             if run then run.xp = (run.xp or 0) + gain end
+            if ns.Moments then pcall(ns.Moments.XP, gain) end
         end
     end
     lastXP, lastMax, lastLevel = xp, max, level

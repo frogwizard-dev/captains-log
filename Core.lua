@@ -16,6 +16,8 @@ ns.defaults = {
         gossip = true,      -- write down what people say to you and the replies you choose
         pathKeepDays = 0,   -- days of full-detail journey paths; older ones are thinned (0 = keep all)
         journeyButton = true, -- the journey map's button on the world map (UI\JourneyMap.lua)
+        journeyCompress = true, -- the journey map's time bar squeezes quiet stretches
+        journeyNotes = true,  -- the journey map labels things as they happen during playback
     },
     mobs = {},    -- [npcID] = bestiary entry; "n:Name" keys hold kills not yet matched to an ID
     quests = {},  -- [questID] = { title, accepted, completed, ... }
@@ -79,6 +81,18 @@ ns.On("ADDON_LOADED", function() end)
 ------------------------------------------------------------------------------
 -- Shared helpers
 ------------------------------------------------------------------------------
+
+-- A unit's whole name. On Forever, UnitName's second return is the character's surname (on
+-- other clients it's the realm, so it's left off there): "Feral Streep", not "Feral".
+local FOREVER = select(4, GetBuildInfo()) > 16000 and select(4, GetBuildInfo()) < 20000
+function ns.FullName(unit)
+    local name, last = UnitName(unit or "player")
+    if ns.issecret(name) or not name or name == "" then return nil end
+    if FOREVER and type(last) == "string" and last ~= "" and not ns.issecret(last) then
+        return name .. " " .. last
+    end
+    return name
+end
 
 function ns.Today()
     return date("%Y-%m-%d")
@@ -241,6 +255,8 @@ SlashCmdList.CAPTAINSLOG = function(msg)
     if msg == "debug" then
         ns.db.settings.debug = not ns.db.settings.debug
         ns.Print(L["kill debug messages %s"]:format(ns.db.settings.debug and L["on"] or L["off"]))
+    elseif msg == "journey" then
+        if ns.JourneyReport then ns.JourneyReport() end
     elseif msg == "picture" or msg == "photo" then
         ns.TakePicture()
     elseif msg == "probe" or msg:match("^probe ") then
