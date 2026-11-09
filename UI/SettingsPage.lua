@@ -87,8 +87,32 @@ function Page:Build(left, right)
         ns.Refresh()
     end)
 
-    self.doc = UI.Doc(right, ns.Book.CONTENT_W, ns.Book.CONTENT_H)
-    self.doc.sf:SetPoint("TOPLEFT")
+    -- The journey map (the left page is full, so its settings head the right one).
+    local ry = 0
+    local function placeRight(w, h, x)
+        w:SetPoint("TOPLEFT", x or 0, ry)
+        ry = ry - h
+    end
+    local jtitle = UI.Text(right, 15, UI.ACCENT, UI.HEADING_FONT)
+    jtitle:SetText(L["Journey map"])
+    placeRight(jtitle, 22, 2)
+    placeRight(UI.Checkbox(right, L["Show the journey map's button on the world map"],
+        function() return s.journeyButton ~= false end, function(v)
+            s.journeyButton = v
+            if ns.JourneyMap then ns.JourneyMap.UpdateToggle() end
+        end), 28)
+    local keep = UI.Text(right, 12)
+    keep:SetText(L["Keep detailed routes for (older days keep a simpler line):"])
+    placeRight(keep, 22, 4)
+    local KEEP = { { 0, L["Forever"] } }
+    for _, n in ipairs({ 7, 14, 30, 60, 90, 180, 365 }) do KEEP[#KEEP + 1] = { n, L["%d days"]:format(n) } end
+    placeRight(UI.Dropdown(right, 220, KEEP, function() return s.pathKeepDays or 0 end, function(v)
+        s.pathKeepDays = v
+        if ns.Journey and ns.Journey.Prune then pcall(ns.Journey.Prune) end
+    end), 36, 4)
+
+    self.doc = UI.Doc(right, ns.Book.CONTENT_W, ns.Book.CONTENT_H + ry)
+    self.doc.sf:SetPoint("TOPLEFT", 0, ry)
 end
 
 ------------------------------------------------------------------------------

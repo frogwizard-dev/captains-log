@@ -50,6 +50,12 @@ local function Log(kind, data)
     local events = ns.Day().events
     if #events >= MAX_EVENTS then return end
     data.k, data.t = kind, time()
+    -- Where it happened, in the journey's coordinates (Journey.lua): pi instance, py north,
+    -- px west (yards), pm the zone's map. Left out where positions are hidden.
+    if ns.Journey and ns.Journey.Here and data.pi == nil then
+        local inst, north, west, map = ns.Journey.Here()
+        if inst then data.pi, data.py, data.px, data.pm = inst, north, west, map end
+    end
     table.insert(events, data)
     ns.Refresh()
     return data
@@ -69,6 +75,7 @@ local function LogKill(id, name, classification, guid)
     else
         ev = Log("kill", { id = id, name = name, classification = classification, n = 1, last = time() })
     end
+    if ns.Count then ns.Count("kills") end
     if guid and ev then guidEvents[guid] = ev end
 end
 
@@ -611,7 +618,10 @@ end)
 ------------------------------------------------------------------------------
 
 ns.On("PLAYER_LEVEL_UP", function(level)
-    ns.db.levels[level] = { time = time(), zone = ns.Zone() }
+    -- Merged: Journey.lua and Played.lua keep more on each level's record.
+    local rec = ns.db.levels[level] or {}
+    ns.db.levels[level] = rec
+    rec.time, rec.zone = time(), ns.Zone()
     table.insert(ns.Day().levels, level)
     Log("level", { level = level })
 end)

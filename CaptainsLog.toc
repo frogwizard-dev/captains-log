@@ -2,8 +2,9 @@
 ## Title: Captain's Log
 ## Category: Frog Wizard
 ## Notes: A personal journal that writes itself: a bestiary, a daily log, quests, people, lands, dungeons and fishing, all linked together and pinned to your world map.
-## Version: 0.7.0
+## Version: 0.8.0
 ## X-Curse-Project-ID: 1719659
+## SavedVariables: CaptainsLogAccount
 ## SavedVariablesPerCharacter: CaptainsLogDB
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
 ## AddonCompartmentFunc: CaptainsLog_OnCompartmentClick
@@ -23,6 +24,10 @@ Photos.lua
 Shots.lua
 Tooltip.lua
 Probe.lua
+Journey.lua
+Played.lua
+Ledger.lua
+Stats.lua
 UI\Widgets.lua
 UI\Book.lua
 UI\Links.lua
@@ -34,4 +39,7 @@ UI\QuestsPage.lua
 UI\ZonesPage.lua
 UI\DungeonsPage.lua
 UI\FishingPage.lua
+UI\CharacterPage.lua
+UI\LedgerPage.lua
+UI\JourneyMap.lua
 UI\SettingsPage.lua

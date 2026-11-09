@@ -279,6 +279,7 @@ function ns.RecordCatch(c)
 
     local day = ns.Day()
     day.fish = (day.fish or 0) + total
+    if ns.Count and total > 0 then ns.Count("fish", total) end
     LogFish(zone, place, c.items, firsts, total)
 
     -- Milestones reached a moment ago, before this catch was seen, are its doing.

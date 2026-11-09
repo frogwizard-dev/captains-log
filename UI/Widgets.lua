@@ -20,6 +20,78 @@ function UI.Ink(link)
     return link
 end
 
+-- Items by ID for the newer log entries and the level snapshots. The game may not have an item
+-- cached yet: then it's asked for, and the book redraws when it arrives (once per item).
+local asked = {}
+local function AskItem(id)
+    if asked[id] or not (Item and Item.CreateFromItemID) then return end
+    asked[id] = true
+    pcall(function()
+        local item = Item:CreateFromItemID(id)
+        if item:IsItemEmpty() then return end
+        item:ContinueOnItemLoad(function() ns.Refresh() end)
+    end)
+end
+
+local function ItemInfo(id)
+    local fn = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if not fn then return end
+    local ok, name, link, quality = pcall(fn, id)
+    if ok and name then return name, link, quality end
+end
+
+-- An item's link, re-inked for parchment; while it isn't cached, a stand-in in the colour of
+-- quality `q` (if known) that still shows the item's tooltip on hover.
+function UI.ItemLink(id, q)
+    if type(id) ~= "number" then return L["an unknown item"] end
+    local name, link, quality = ItemInfo(id)
+    if link then return UI.Ink(link) end
+    AskItem(id)
+    local hex = "2e1d0c"
+    q = quality or q
+    if q and q >= 2 and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[q] and ITEM_QUALITY_COLORS[q].hex then
+        hex = ITEM_QUALITY_COLORS[q].hex:gsub("|c%x%x", "")
+    end
+    return string.format("|cff%s|Hitem:%d|h[%s]|h|r", hex, id, name or L["item %s"]:format(id))
+end
+
+function UI.ItemIcon(id)
+    if type(id) ~= "number" then return 134400 end
+    local ok, icon = pcall(C_Item.GetItemIconByID, id)
+    if ok and icon then return icon end
+    AskItem(id)
+    return 134400
+end
+
+-- Class colours darkened so light ones (priest white, rogue yellow) stay readable on parchment.
+function UI.ClassInk(class)
+    local r, g, b = FrogLib.Color.Class(class)
+    if not r then return "|cff2e1d0c" end
+    return string.format("|cff%02x%02x%02x", r * 150, g * 150, b * 150)
+end
+
+-- Long stretches of play: "3d 4h", "5h 12m".
+function UI.LongDuration(seconds)
+    seconds = math.floor(seconds or 0)
+    if seconds >= 86400 then
+        return L["%dd %dh"]:format(math.floor(seconds / 86400), math.floor(seconds % 86400 / 3600))
+    end
+    return ns.Duration(seconds)
+end
+
+-- Yards as a distance a reader feels: miles on English clients, kilometres elsewhere.
+local IMPERIAL = { enUS = true, enGB = true }
+function UI.Distance(yards)
+    yards = yards or 0
+    if IMPERIAL[ns.locale] then
+        if yards < 880 then return L["%s yards"]:format(ns.Number(math.floor(yards))) end
+        return L["%.1f miles"]:format(yards / 1760)
+    end
+    local m = yards * 0.9144
+    if m < 1000 then return L["%s m"]:format(ns.Number(math.floor(m))) end
+    return L["%.1f km"]:format(m / 1000)
+end
+
 function UI.Text(parent, size, color, font)
     local fs = parent:CreateFontString(nil, "OVERLAY")
     fs:SetFont(font or UI.BODY_FONT, size or 12, "")
@@ -312,6 +384,9 @@ function Doc:Clear(subject)
     self.spotMaps = self.spotMaps or {}
     for _, m in ipairs(self.spotMaps) do m:Hide() end
     self.nsm = 0
+    self.bars = self.bars or {}
+    for _, b in ipairs(self.bars) do b:Hide() end
+    self.nb = 0
     self.nt, self.ni, self.y = 0, 0, 0
     if not self.keepScroll then self.sf:SetVerticalScroll(0) end
 end
@@ -1031,6 +1106,47 @@ function Doc:Label(text, x, y, w, color)
     fs:SetWordWrap(false)
     fs:SetText(text)
     fs:Show()
+end
+
+-- A labelled bar: the label on the left, `right` (an amount) on the right, and an inked bar
+-- beneath, filled value / max of the way. color = { r, g, b } for the fill.
+function Doc:Bar(label, value, max, right, color)
+    self.nb = (self.nb or 0) + 1
+    self.bars = self.bars or {}
+    local b = self.bars[self.nb]
+    if not b then
+        b = CreateFrame("Frame", nil, self.child)
+        b:SetHeight(26)
+        b.label = UI.Text(b, 12)
+        b.label:SetPoint("TOPLEFT", 0, 0)
+        b.label:SetWordWrap(false)
+        b.right = UI.Text(b, 11, UI.FADED)
+        b.right:SetPoint("TOPRIGHT", 0, 0)
+        b.right:SetJustifyH("RIGHT")
+        b.label:SetPoint("RIGHT", b.right, "LEFT", -6, 0)
+        b.track = b:CreateTexture(nil, "ARTWORK")
+        b.track:SetPoint("BOTTOMLEFT", 0, 5)
+        b.track:SetPoint("BOTTOMRIGHT", 0, 5)
+        b.track:SetHeight(6)
+        b.track:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.12)
+        b.fill = b:CreateTexture(nil, "ARTWORK", nil, 1)
+        b.fill:SetPoint("TOPLEFT", b.track)
+        b.fill:SetHeight(6)
+        self.bars[self.nb] = b
+    end
+    local w = self.width - 8
+    b:SetWidth(w)
+    b.label:SetText(label)
+    b.right:SetText(right or "")
+    local share = (max and max > 0) and math.max(0, math.min(1, (value or 0) / max)) or 0
+    b.fill:SetWidth(math.max(0.01, w * share))
+    b.fill:SetShown(share > 0)
+    local c = color or UI.ACCENT
+    b.fill:SetColorTexture(c[1], c[2], c[3], 0.8)
+    b:ClearAllPoints()
+    b:SetPoint("TOPLEFT", 8, -self.y)
+    b:Show()
+    self.y = self.y + 28
 end
 
 function Doc:Finish()

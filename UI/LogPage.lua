@@ -200,6 +200,50 @@ local function FishText(ev)
     return s .. "."
 end
 
+-- A learned spell: its link (or name) from the game, or the name written down at the time.
+local function Try(fn, ...)
+    if not fn then return end
+    local ok, v = pcall(fn, ...)
+    if ok then return v end
+end
+
+local function SpellText(ev)
+    if ev.id then
+        local link = Try(C_Spell and C_Spell.GetSpellLink, ev.id) or Try(GetSpellLink, ev.id)
+        if type(link) == "string" and not ns.issecret(link) then return UI.Ink(link) end
+        local name = Try(C_Spell and C_Spell.GetSpellName, ev.id) or Try(GetSpellInfo, ev.id)
+        if type(name) == "string" and not ns.issecret(name) then return name end
+    end
+    return ev.name or L["a new spell"]
+end
+
+-- "Honored", "Friendly": the game's own words for a reputation tier (1-8).
+local function Standing(n)
+    return (n and _G["FACTION_STANDING_LABEL" .. n]) or L["standing %s"]:format(tostring(n or "?"))
+end
+
+-- "1st", "1,000th" on English clients; other languages put the number in their own sentence.
+local function Ordinal(n)
+    n = n or 0
+    if ns.locale ~= "enUS" and ns.locale ~= "enGB" then return ns.Number(n) end
+    if n == 1 then return L["first"] end
+    local suffix = "th"
+    local last2, last = n % 100, n % 10
+    if last2 < 11 or last2 > 13 then
+        suffix = ({ [1] = "st", [2] = "nd", [3] = "rd" })[last] or "th"
+    end
+    return ns.Number(n) .. suffix
+end
+
+-- Milestones, one sentence per tally ("Your 1,000th kill!").
+local MILESTONES = {
+    kills = L["Your %s kill!"], deaths = L["Your %s death."], quests = L["Your %s quest done!"],
+    looted = L["Your %s item looted!"], crafted = L["Your %s item made!"], flights = L["Your %s flight!"],
+    hearths = L["Your %s trip home by hearthstone."], fish = L["Your %s fish caught!"],
+    dungeons = L["Your %s dungeon!"], bosses = L["Your %s boss defeated!"],
+    duelsWon = L["Your %s duel won!"], duelsLost = L["Your %s duel lost."],
+}
+
 local WRITERS = {
     kill = function(ev)
         local tag = UNIQUE[ev.classification] and L[" (rare)"] or (ev.classification == "elite" and L[" (elite)"] or "")
@@ -240,8 +284,56 @@ local WRITERS = {
         if #rewards > 0 then s = s .. " (" .. table.concat(rewards, ", ") .. ")" end
         return s .. "."
     end,
+    -- "Reached level 12! 1d 3h played; level 11 took 2h 14m. See yourself then"
     level = function(ev)
-        return "|cff7a1f0d" .. L["Reached level %s!"]:format(ev.level) .. "|r"
+        local s = "|cff7a1f0d" .. L["Reached level %s!"]:format(ev.level) .. "|r"
+        local rec = ns.db.levels[ev.level]
+        local prev = ns.db.levels[ev.level - 1]
+        local parts = {}
+        if rec and rec.played then parts[#parts + 1] = L["%s played"]:format(UI.LongDuration(rec.played)) end
+        if prev and prev.spent then parts[#parts + 1] = L["level %d took %s"]:format(ev.level - 1, ns.Duration(prev.spent)) end
+        if #parts > 0 then s = s .. " |cff6b5d4f" .. table.concat(parts, "; ") .. ".|r" end
+        if rec and rec.snap then s = s .. " " .. UI.Link(L["See yourself then"], "level", ev.level) end
+        return s
+    end,
+    equip = function(ev)
+        if ev.old then
+            return L["Equipped %s, replacing %s."]:format(UI.ItemLink(ev.id), UI.ItemLink(ev.old))
+        end
+        return L["Equipped %s."]:format(UI.ItemLink(ev.id))
+    end,
+    spell = function(ev)
+        return L["Learned %s."]:format(SpellText(ev))
+    end,
+    rep = function(ev)
+        local standing = Standing(ev.standing)
+        if ev.old and ev.standing and ev.standing < ev.old then
+            return L["Fell to %s with %s."]:format(standing, ev.name or "?")
+        end
+        return "|cff7a1f0d" .. L["Now %s with %s."]:format(standing, ev.name or "?") .. "|r"
+    end,
+    skill = function(ev)
+        if ev.new then return L["Took up %s."]:format(ev.name or "?") end
+        return L["Reached %s in %s."]:format(ev.rank or "?", ev.name or "?")
+    end,
+    guild = function(ev)
+        local g = "<" .. (ev.name or "?") .. ">"
+        if ev.action == "join" then return "|cff7a1f0d" .. L["Joined the guild %s."]:format(g) .. "|r" end
+        if ev.action == "leave" then return L["Left the guild %s."]:format(g) end
+        if not ev.rank then return L["Your rank changed in %s."]:format(g) end
+        return (ev.up and L["Promoted to %s in %s."] or L["Demoted to %s in %s."]):format(ev.rank, g)
+    end,
+    duel = function(ev)
+        if ev.won then return L["Won a duel against %s."]:format(ev.vs or "?") end
+        return L["Lost a duel to %s."]:format(ev.vs or "?")
+    end,
+    firstitem = function(ev)
+        return L["Your first %s."]:format(UI.ItemLink(ev.id, ev.q))
+    end,
+    milestone = function(ev)
+        local fmt = MILESTONES[ev.stat]
+        if fmt then return "|cff7a1f0d" .. fmt:format(Ordinal(ev.n)) .. "|r" end
+        return "|cff7a1f0d" .. L["Milestone: %s, %s."]:format(ns.StatName(ev.stat), ns.Number(ev.n or 0)) .. "|r"
     end,
     death = function(ev)
         if ev.killer then return "|cff7a1f0d" .. L["Was slain by %s."]:format(Called(ev.killer, ev.classification)) .. "|r" end
@@ -288,6 +380,14 @@ local WRITERS = {
     end,
 }
 
+-- The sentence for one timeline entry (or nil), for the journey map's tooltips too.
+function ns.LogLine(ev, key)
+    local write = WRITERS[ev.k]
+    if not write then return end
+    local ok, line = pcall(write, ev, key)
+    if ok then return line end
+end
+
 function Page:RenderTimeline(key)
     local d = ns.Day(key)
     local doc = self.doc
@@ -296,9 +396,15 @@ function Page:RenderTimeline(key)
     if #d.events == 0 then
         doc:Faded(L["Nothing written for this day yet."])
     end
+    if d.path and #d.path > 0 and ns.JourneyMap then
+        doc:Row("|cff6b5d4f" .. L["Your route this day is on the journey map."] .. "|r", {
+            { L["Show on map"], icon = "Interface\\Icons\\INV_Misc_Map_01",
+                tip = { L["Journey map"], L["Plays this day back on your world map: your route, and where each thing in the log happened."] },
+                onClick = function() ns.JourneyMap.Show(key) end },
+        })
+    end
     for _, ev in ipairs(d.events) do
-        local write = WRITERS[ev.k]
-        local line = write and write(ev, key)
+        local line = ns.LogLine(ev, key)
         if line then
             doc:Text("|cff8a6d4a" .. date("%H:%M", ev.t) .. "|r   " .. line, 12)
         end

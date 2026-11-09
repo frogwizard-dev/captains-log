@@ -14,6 +14,8 @@ ns.defaults = {
         fishing = true,     -- keep the fishing journal (what you catch, where, your skill)
         fishPins = false,   -- show the spots you've fished from on the world map
         gossip = true,      -- write down what people say to you and the replies you choose
+        pathKeepDays = 0,   -- days of full-detail journey paths; older ones are thinned (0 = keep all)
+        journeyButton = true, -- the journey map's button on the world map (UI\JourneyMap.lua)
     },
     mobs = {},    -- [npcID] = bestiary entry; "n:Name" keys hold kills not yet matched to an ID
     quests = {},  -- [questID] = { title, accepted, completed, ... }
@@ -26,6 +28,13 @@ ns.defaults = {
     mapLayers = {}, -- entries pinned to the world map: { kind = "quest"|"mob"|"npc"|"zone", id }
     photoRemoved = {}, -- [screenshot file] = true for pictures taken out, so they're never re-added
     fishing = { items = {}, spots = {}, milestones = {} }, -- the fishing journal (Fishing.lua)
+    travel = {},    -- [mode] = yards moved: foot, mount, swim, taxi, ghost (Journey.lua)
+    time = {},      -- [state] = seconds, lifetime (Journey.lua)
+    ledger = { inc = {}, exp = {} }, -- [category] = copper, lifetime (Ledger.lua)
+    stats = {},     -- [counter] = lifetime count (Stats.lua)
+    seenItems = {}, -- [itemID] = true for every uncommon+ item ever acquired (Stats.lua)
+    factions = {},  -- [faction name] = standing tier last seen (Stats.lua)
+    skills = {},    -- [skill name] = rank last seen (Stats.lua)
 }
 
 -- Midnight hides some values from addons ("secret values"); they can't be compared or stored.

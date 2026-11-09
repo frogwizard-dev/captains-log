@@ -1,5 +1,15 @@
 # Captain's Log
 
+## 0.8.0
+
+- **Character page** — a new page in the book about you: time played, how long you've been at this level and how long a level takes you on average, and every level you've reached with the date, how long it took and where. Click a level to see yourself as you were then: your gear, stats, health and mana, armour, talents, skills, coin and rested experience (snapshots are taken from now on, as you level).
+- On the Character page too: **where your time goes** (fighting, flying, resting, away, in a group...) for all time, today and this level; **how far you've travelled** on foot, mounted, swimming, by flight and as a ghost; and **your characters** across the account, with their level, time played, coin and when you last saw them.
+- **Ledger** — a new page for your coin: what it came from (selling, loot, quests, the auction house, mail, trades) and what it went on (buying, repairs, training, flights, postage...), for all time, the last seven days and each day, with what you came out ahead or behind. It also keeps your lifetime tallies (kills, quests, deaths, items looted and made, fish, flights, hearthstones, dungeons, bosses, duels) and where your experience came from.
+- **Journey map with a time bar** — your route each day is written down, and the book plays it back on the world map. Open it from the new button on the map, from a day's timeline, or from the Character page. Pick a day (or all days), press Play, and choose a speed; or click and drag along the time bar to go back and forth through the day. Your route so far is drawn, a marker shows where you were, and things from the log (quests, kills, deaths, levels, pictures, firsts...) pop up where they happened; hover one to read its line. "Whole route" shows the full day at once.
+- New timeline entries: upgrades you put on, spells learned, reputation steps ("Now Honored with Stormwind"), profession steps, joining or leaving a guild, duels won and lost, the first of each good item you find, and milestones (your 100th quest, your 1,000th kill...). The level line now says how long you'd played and how long the last level took, with a link to how you looked then.
+- Settings: keep detailed routes for a number of days (older days keep a simpler line, so the saved file stays small), and hide the journey map's button if you don't want it.
+- Asking the game for your time played no longer prints it to chat (your own /played still does).
+
 ## 0.7.0
 
 - **简体中文** — Captain's Log can now show in other languages, and starts with Simplified Chinese (used automatically on a Chinese game client). It's a first pass: corrections from native players are very welcome.
