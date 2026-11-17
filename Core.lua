@@ -7,7 +7,7 @@ ns.defaults = {
         announce = false,   -- chat line for each new bestiary entry
         debug = false,      -- chat line for each counted kill and which signal caught it
         lootQuality = 2,    -- lowest item quality kept in the daily log (2 = uncommon)
-        photosAll = true,   -- every screenshot becomes a photo card, not just "Take a picture"
+        photosAll = true,   -- every screenshot becomes a photo card, not only "Take a picture"
         photoClean = true,  -- "Take a picture" hides the interface for the shot (out of combat)
         photosShow = false, -- show the screenshots themselves (after "Set up pictures.bat")
         photoView = "list", -- the Pictures page: "list" (cards one under another) or "grid"
@@ -44,39 +44,38 @@ ns.issecret = FrogLib.issecret
 
 ns.Print = FrogLib.Util.Printer(L["Captain's Log"], "d8b56a")
 
-function ns.Debug(msg)
+function ns.Debug(text)
     if ns.db and ns.db.settings.debug then
-        print("|cffd8b56aCaptain's Log|r |cff999999" .. msg .. "|r")
+        print("|cffd8b56aCaptain's Log|r |cff999999" .. text .. "|r")
     end
 end
 
-local CopyDefaults = FrogLib.Util.CopyDefaults
-
 -- Event bus: modules subscribe with ns.On; handlers only run once saved data is loaded.
 local frame = CreateFrame("Frame")
-local handlers = {}
+local handlers = { ADDON_LOADED = {} }
+frame:RegisterEvent("ADDON_LOADED")
 
-function ns.On(event, fn)
+function ns.On(event, handler)
     if not handlers[event] then
         handlers[event] = {}
         pcall(frame.RegisterEvent, frame, event) -- tolerate events this client doesn't have
     end
-    table.insert(handlers[event], fn)
+    table.insert(handlers[event], handler)
 end
 
 frame:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" then
-        if (...) ~= ADDON then return end
+        if ... ~= ADDON then return end
         CaptainsLogDB = CaptainsLogDB or {}
-        CopyDefaults(ns.defaults, CaptainsLogDB)
+        CaptainsLogDB.probe = nil -- the old /log probe test's lines
+        FrogLib.Util.CopyDefaults(ns.defaults, CaptainsLogDB)
         ns.db = CaptainsLogDB
     end
     if not ns.db then return end
-    for _, fn in ipairs(handlers[event]) do
-        fn(...)
+    for _, handler in ipairs(handlers[event]) do
+        handler(...)
     end
 end)
-ns.On("ADDON_LOADED", function() end)
 
 ------------------------------------------------------------------------------
 -- Shared helpers
@@ -84,14 +83,42 @@ ns.On("ADDON_LOADED", function() end)
 
 -- A unit's whole name. On Forever, UnitName's second return is the character's surname (on
 -- other clients it's the realm, so it's left off there): "Feral Streep", not "Feral".
-local FOREVER = select(4, GetBuildInfo()) > 16000 and select(4, GetBuildInfo()) < 20000
+local BUILD = select(4, GetBuildInfo())
+local FOREVER = BUILD > 16000 and BUILD < 20000
 function ns.FullName(unit)
-    local name, last = UnitName(unit or "player")
+    local name, surname = UnitName(unit or "player")
     if ns.issecret(name) or not name or name == "" then return nil end
-    if FOREVER and type(last) == "string" and last ~= "" and not ns.issecret(last) then
-        return name .. " " .. last
+    if FOREVER and type(surname) == "string" and surname ~= "" and not ns.issecret(surname) then
+        return name .. " " .. surname
     end
     return name
+end
+
+-- A string the game showed, or nil when it's hidden, empty or not a string.
+function ns.PlainText(value)
+    if type(value) ~= "string" or ns.issecret(value) or value == "" then return nil end
+    return value
+end
+
+function ns.PlainNumber(value)
+    if type(value) == "number" and not ns.issecret(value) then return value end
+end
+
+local function Returned(ok, ...)
+    if ok then return ... end
+end
+
+-- Calls an API that may be missing or may fail; nothing comes back then.
+function ns.Call(Function, ...)
+    if not Function then return end
+    return Returned(pcall(Function, ...))
+end
+
+-- A yes/no API answer, false when it's missing, fails or is hidden.
+function ns.Truthy(Query, ...)
+    local answer = ns.Call(Query, ...)
+    if ns.issecret(answer) then return false end
+    return answer and true or false
 end
 
 function ns.Today()
@@ -100,23 +127,23 @@ end
 
 function ns.Day(key)
     key = key or ns.Today()
-    local d = ns.db.days[key]
-    if not d then
-        d = {
+    local day = ns.db.days[key]
+    if not day then
+        day = {
             played = 0, kills = 0, xp = 0, moneyIn = 0, moneyOut = 0, discovered = 0,
             startLevel = UnitLevel("player"),
             levels = {}, zones = {}, quests = {}, notable = {}, loot = {}, deaths = {}, note = "",
             events = {}, -- the timeline: { k = kind, t = time, ... }
         }
-        ns.db.days[key] = d
+        ns.db.days[key] = day
     end
-    d.events = d.events or {} -- days logged before the timeline existed
-    return d
+    day.events = day.events or {} -- days logged before the timeline existed
+    return day
 end
 
 function ns.DayTime(key)
-    local y, m, d = key:match("(%d+)-(%d+)-(%d+)")
-    return time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 12 })
+    local year, month, day = key:match("(%d+)-(%d+)-(%d+)")
+    return time({ year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = 12 })
 end
 
 function ns.Zone()
@@ -131,10 +158,10 @@ function ns.ZoneMap()
     local ok, mapID = pcall(C_Map.GetBestMapForUnit, "player")
     if not ok or ns.issecret(mapID) or not mapID then return nil end
     for _ = 1, 5 do
-        local info = C_Map.GetMapInfo(mapID)
+        local map = C_Map.GetMapInfo(mapID)
         -- 5 = micro (a cave, a building), 6 = orphan
-        if not info or (info.mapType or 0) < 5 or not info.parentMapID or info.parentMapID == 0 then break end
-        mapID = info.parentMapID
+        if not map or (map.mapType or 0) < 5 or not map.parentMapID or map.parentMapID == 0 then break end
+        mapID = map.parentMapID
     end
     return mapID
 end
@@ -142,10 +169,10 @@ end
 -- The continent a map lies on ("Eastern Kingdoms"), or nil.
 function ns.Continent(mapID)
     for _ = 1, 10 do
-        local info = mapID and C_Map.GetMapInfo(mapID)
-        if not info then return nil end
-        if info.mapType == 2 then return info.name end -- 2 = continent
-        mapID = info.parentMapID
+        local map = mapID and C_Map.GetMapInfo(mapID)
+        if not map then return nil end
+        if map.mapType == 2 then return map.name end -- 2 = continent
+        mapID = map.parentMapID
     end
 end
 
@@ -163,15 +190,15 @@ end
 function ns.Position(best)
     local mapID
     if best then
-        local ok, id = pcall(C_Map.GetBestMapForUnit, "player")
-        mapID = ok and FrogLib.Safe(id) or nil
+        local ok, bestID = pcall(C_Map.GetBestMapForUnit, "player")
+        mapID = ok and FrogLib.Safe(bestID) or nil
     else
         mapID = ns.ZoneMap()
     end
     if ns.issecret(mapID) or not mapID then return end
-    local ok, pos = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
-    if not ok or not pos then return end
-    local x, y = pos:GetXY()
+    local ok, position = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
+    if not ok or not position then return end
+    local x, y = position:GetXY()
     if ns.issecret(x) or ns.issecret(y) or not x then return end
     return mapID, math.floor(x * 1000 + 0.5) / 1000, math.floor(y * 1000 + 0.5) / 1000
 end
@@ -187,18 +214,18 @@ end
 
 function ns.Duration(seconds)
     seconds = math.floor(seconds or 0)
-    local h, m = math.floor(seconds / 3600), math.floor(seconds % 3600 / 60)
-    if h > 0 then return string.format(L["%dh %dm"], h, m) end
-    if m > 0 then return string.format(L["%dm"], m) end
+    local hours, minutes = math.floor(seconds / 3600), math.floor(seconds % 3600 / 60)
+    if hours > 0 then return string.format(L["%dh %dm"], hours, minutes) end
+    if minutes > 0 then return string.format(L["%dm"], minutes) end
     return L["under a minute"]
 end
 
-function ns.Ago(t)
-    local s = time() - t
-    if s < 60 then return L["just now"] end
-    if s < 3600 then return L["%dm ago"]:format(math.floor(s / 60)) end
-    if s < 86400 then return L["%dh ago"]:format(math.floor(s / 3600)) end
-    return L["%dd ago"]:format(math.floor(s / 86400))
+function ns.Ago(when)
+    local seconds = time() - when
+    if seconds < 60 then return L["just now"] end
+    if seconds < 3600 then return L["%dm ago"]:format(math.floor(seconds / 60)) end
+    if seconds < 86400 then return L["%dh ago"]:format(math.floor(seconds / 3600)) end
+    return L["%dd ago"]:format(math.floor(seconds / 86400))
 end
 
 -- The dungeon run you're in right now, if any (Dungeons.lua fills this in).
@@ -211,33 +238,17 @@ function ns.Short(seconds)
     return L["%ds"]:format(seconds)
 end
 
-function ns.Date(t)
-    return date("%d %b %Y", t)
+function ns.Date(when)
+    return date("%d %b %Y", when)
 end
 
--- "4g 50s 20c" with coin icons. GetCoinTextureString moved to C_CurrencyInfo and isn't a
--- global on this client, so fall back through the known homes, then build it ourselves.
-local COIN = "|TInterface\\MoneyFrame\\UI-%sIcon:0:0:1:0|t"
-function ns.Money(copper)
-    copper = copper or 0
-    local fn = (C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString) or GetCoinTextureString
-    if fn then
-        local ok, text = pcall(fn, copper)
-        if ok and text then return text end
-    end
-    local g, s, c = math.floor(copper / 10000), math.floor(copper % 10000 / 100), copper % 100
-    local parts = {}
-    if g > 0 then parts[#parts + 1] = g .. COIN:format("Gold") end
-    if s > 0 then parts[#parts + 1] = s .. COIN:format("Silver") end
-    if c > 0 or #parts == 0 then parts[#parts + 1] = c .. COIN:format("Copper") end
-    return table.concat(parts, " ")
+ns.Money = FrogLib.Text.Coins -- "4g 50s 20c" with coin icons
+
+function ns.Number(count)
+    return BreakUpLargeNumbers and BreakUpLargeNumbers(count) or tostring(count)
 end
 
-function ns.Number(n)
-    return BreakUpLargeNumbers and BreakUpLargeNumbers(n) or tostring(n)
-end
-
--- Coalesced "data changed" signal so an open book re-renders at most a few times a second.
+-- One "data changed" signal for many, so an open book redraws at most a few times a second.
 local refreshQueued = false
 function ns.Refresh()
     if refreshQueued or not ns.Book then return end
@@ -250,19 +261,17 @@ end
 
 SLASH_CAPTAINSLOG1 = "/log"
 SLASH_CAPTAINSLOG2 = "/captainslog"
-SlashCmdList.CAPTAINSLOG = function(msg)
-    msg = strtrim(msg or ""):lower()
-    if msg == "debug" then
+SlashCmdList.CAPTAINSLOG = function(input)
+    local command = strtrim(input or ""):lower()
+    if command == "debug" then
         ns.db.settings.debug = not ns.db.settings.debug
         ns.Print(L["kill debug messages %s"]:format(ns.db.settings.debug and L["on"] or L["off"]))
-    elseif msg == "journey" then
+    elseif command == "journey" then
         if ns.JourneyReport then ns.JourneyReport() end
-    elseif msg == "journey play" then
+    elseif command == "journey play" then
         if ns.JourneyMap then ns.JourneyMap.Show() end
-    elseif msg == "picture" or msg == "photo" then
+    elseif command == "picture" or command == "photo" then
         ns.TakePicture()
-    elseif msg == "probe" or msg:match("^probe ") then
-        ns.Probe(msg:match("^probe%s+(%S+)"))
     else
         ns.Book:Toggle()
     end

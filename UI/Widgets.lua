@@ -7,9 +7,12 @@ ns.UI = UI
 UI.INK = { 0.22, 0.13, 0.05 }
 UI.FADED = { 0.46, 0.36, 0.22 }
 UI.ACCENT = { 0.50, 0.12, 0.05 }
-UI.HEADING_FONT = "Fonts\\MORPHEUS.TTF"
-UI.BODY_FONT = "Fonts\\FRIZQT__.TTF"
+-- Their Cyrillic versions on a Russian client, the game's own font on a Korean or Chinese one.
+UI.HEADING_FONT = FrogLib.Media.ForClient("Fonts\\MORPHEUS.TTF")
+UI.BODY_FONT = FrogLib.Media.ForClient("Fonts\\FRIZQT__.TTF")
+UI.LINK_BLUE = { 0.11, 0.31, 0.55 } -- clickable words and buttons
 local WHITE = "Interface\\Buttons\\WHITE8X8"
+local LINK_BLUE = UI.LINK_BLUE
 
 -- White (common) and grey (poor) item names vanish on parchment; re-ink them. Links come as
 -- either "|cffRRGGBB" or the newer "|cnIQ<quality>:" colour codes.
@@ -34,23 +37,24 @@ local function AskItem(id)
 end
 
 local function ItemInfo(id)
-    local fn = (C_Item and C_Item.GetItemInfo) or GetItemInfo
-    if not fn then return end
-    local ok, name, link, quality = pcall(fn, id)
+    local GetInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if not GetInfo then return end
+    local ok, name, link, quality = pcall(GetInfo, id)
     if ok and name then return name, link, quality end
 end
 
 -- An item's link, re-inked for parchment; while it isn't cached, a stand-in in the colour of
--- quality `q` (if known) that still shows the item's tooltip on hover.
-function UI.ItemLink(id, q)
+-- `knownQuality` (if given) that still shows the item's tooltip on hover.
+function UI.ItemLink(id, knownQuality)
     if type(id) ~= "number" then return L["an unknown item"] end
     local name, link, quality = ItemInfo(id)
     if link then return UI.Ink(link) end
     AskItem(id)
     local hex = "2e1d0c"
-    q = quality or q
-    if q and q >= 2 and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[q] and ITEM_QUALITY_COLORS[q].hex then
-        hex = ITEM_QUALITY_COLORS[q].hex:gsub("|c%x%x", "")
+    quality = quality or knownQuality
+    if quality and quality >= 2 and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
+        and ITEM_QUALITY_COLORS[quality].hex then
+        hex = ITEM_QUALITY_COLORS[quality].hex:gsub("|c%x%x", "")
     end
     return string.format("|cff%s|Hitem:%d|h[%s]|h|r", hex, id, name or L["item %s"]:format(id))
 end
@@ -87,67 +91,85 @@ function UI.Distance(yards)
         if yards < 880 then return L["%s yards"]:format(ns.Number(math.floor(yards))) end
         return L["%.1f miles"]:format(yards / 1760)
     end
-    local m = yards * 0.9144
-    if m < 1000 then return L["%s m"]:format(ns.Number(math.floor(m))) end
-    return L["%.1f km"]:format(m / 1000)
+    local metres = yards * 0.9144
+    if metres < 1000 then return L["%s m"]:format(ns.Number(math.floor(metres))) end
+    return L["%.1f km"]:format(metres / 1000)
+end
+
+local function SetInk(fontString, size, color, font)
+    fontString:SetFont(font or UI.BODY_FONT, size or 12, "")
+    local ink = color or UI.INK
+    fontString:SetTextColor(ink[1], ink[2], ink[3])
 end
 
 function UI.Text(parent, size, color, font)
-    local fs = parent:CreateFontString(nil, "OVERLAY")
-    fs:SetFont(font or UI.BODY_FONT, size or 12, "")
-    local c = color or UI.INK
-    fs:SetTextColor(c[1], c[2], c[3])
-    fs:SetJustifyH("LEFT")
-    fs:SetShadowOffset(0, 0)
-    return fs
+    local fontString = parent:CreateFontString(nil, "OVERLAY")
+    SetInk(fontString, size, color, font)
+    fontString:SetJustifyH("LEFT")
+    fontString:SetShadowOffset(0, 0)
+    return fontString
+end
+
+-- A tooltip with a title and an optional wrapped line.
+local function ShowTip(owner, anchor, title, text)
+    GameTooltip:SetOwner(owner, anchor)
+    GameTooltip:SetText(title)
+    if text then GameTooltip:AddLine(text, 1, 1, 1, true) end
+    GameTooltip:Show()
+end
+
+local function ShowLinkTip(owner, anchor, link)
+    GameTooltip:SetOwner(owner, anchor)
+    GameTooltip:SetHyperlink(link)
+    GameTooltip:Show()
 end
 
 -- A parchment page: warm base colour with the quest-log parchment grain over it.
 function UI.Page(parent)
-    local p = CreateFrame("Frame", nil, parent)
-    local base = p:CreateTexture(nil, "BACKGROUND", nil, -8)
+    local page = CreateFrame("Frame", nil, parent)
+    local base = page:CreateTexture(nil, "BACKGROUND", nil, -8)
     base:SetAllPoints()
     base:SetColorTexture(0.90, 0.82, 0.64)
-    local grain = p:CreateTexture(nil, "BACKGROUND", nil, -7)
+    local grain = page:CreateTexture(nil, "BACKGROUND", nil, -7)
     grain:SetAllPoints()
     grain:SetTexture("Interface\\QuestFrame\\QuestBG")
     -- The parchment art only fills the top-left ~58% x 65% of the file, torn edges included;
     -- crop inside those edges so the grain covers the whole page.
     grain:SetTexCoord(0.03, 0.54, 0.03, 0.62)
     grain:SetAlpha(0.55)
-    return p
+    return page
 end
 
 -- Soft shadow along one edge (the book's spine).
 function UI.Shade(page, side, width)
-    local t = page:CreateTexture(nil, "BACKGROUND", nil, -6)
-    t:SetTexture(WHITE)
-    t:SetWidth(width or 28)
-    t:SetPoint("TOP")
-    t:SetPoint("BOTTOM")
-    t:SetPoint(side)
+    local shade = page:CreateTexture(nil, "BACKGROUND", nil, -6)
+    shade:SetTexture(WHITE)
+    shade:SetWidth(width or 28)
+    shade:SetPoint("TOP")
+    shade:SetPoint("BOTTOM")
+    shade:SetPoint(side)
     local dark, clear = CreateColor(0.2, 0.1, 0.02, 0.35), CreateColor(0.2, 0.1, 0.02, 0)
     if side == "RIGHT" then
-        t:SetGradient("HORIZONTAL", clear, dark)
+        shade:SetGradient("HORIZONTAL", clear, dark)
     else
-        t:SetGradient("HORIZONTAL", dark, clear)
+        shade:SetGradient("HORIZONTAL", dark, clear)
     end
 end
 
-local function Wheel(sf, step)
-    sf:EnableMouseWheel(true)
-    sf:SetScript("OnMouseWheel", function(self, delta)
-        local max = math.max(0, self:GetScrollChild():GetHeight() - self:GetHeight())
-        self:SetVerticalScroll(math.max(0, math.min(max, self:GetVerticalScroll() - delta * step)))
+local function Wheel(scroll, step)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local maxScroll = math.max(0, self:GetScrollChild():GetHeight() - self:GetHeight())
+        self:SetVerticalScroll(math.max(0, math.min(maxScroll, self:GetVerticalScroll() - delta * step)))
     end)
 end
 
--- A slim ink scroll bar just right of a scroll frame, in the page's margin: drag the thumb or
+-- A slim ink scroll bar beside a scroll frame, in the page's margin: drag the thumb or
 -- click the track. Hidden when everything fits. Returns its update function.
-local function ScrollBar(sf)
-    local bar = CreateFrame("Frame", nil, sf)
-    bar:SetPoint("TOPLEFT", sf, "TOPRIGHT", 8, 0)
-    bar:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 8, 0)
+local function ScrollBar(scroll)
+    local bar = CreateFrame("Frame", nil, scroll)
+    bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 8, 0)
+    bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 8, 0)
     bar:SetWidth(6)
     bar:EnableMouse(true)
     local track = bar:CreateTexture(nil, "BACKGROUND")
@@ -155,49 +177,63 @@ local function ScrollBar(sf)
     track:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.10)
     local thumb = CreateFrame("Button", nil, bar)
     thumb:SetWidth(6)
-    local tex = thumb:CreateTexture(nil, "ARTWORK")
-    tex:SetAllPoints()
-    tex:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.45)
-    local hl = thumb:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints()
-    hl:SetColorTexture(UI.ACCENT[1], UI.ACCENT[2], UI.ACCENT[3], 0.35)
+    local thumbInk = thumb:CreateTexture(nil, "ARTWORK")
+    thumbInk:SetAllPoints()
+    thumbInk:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.45)
+    local highlight = thumb:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(UI.ACCENT[1], UI.ACCENT[2], UI.ACCENT[3], 0.35)
 
-    local function range() return math.max(0, sf:GetScrollChild():GetHeight() - sf:GetHeight()) end
-    local function update()
-        local r = range()
-        if r <= 1 then
+    local function Range() return math.max(0, scroll:GetScrollChild():GetHeight() - scroll:GetHeight()) end
+    local function Update()
+        local range = Range()
+        if range <= 1 then
             bar:Hide()
             return
         end
         bar:Show()
-        local h = bar:GetHeight()
-        local th = math.max(24, h * sf:GetHeight() / sf:GetScrollChild():GetHeight())
-        thumb:SetHeight(th)
+        local barHeight = bar:GetHeight()
+        local thumbHeight = math.max(24, barHeight * scroll:GetHeight() / scroll:GetScrollChild():GetHeight())
+        thumb:SetHeight(thumbHeight)
         thumb:ClearAllPoints()
-        thumb:SetPoint("TOP", 0, -(h - th) * math.min(1, sf:GetVerticalScroll() / r))
+        thumb:SetPoint("TOP", 0, -(barHeight - thumbHeight) * math.min(1, scroll:GetVerticalScroll() / range))
     end
-    local function cursorY()
+    local function CursorY()
         local _, y = GetCursorPosition()
         return y / bar:GetEffectiveScale()
     end
     local dragFrom, scrollFrom
     thumb:SetScript("OnMouseDown", function()
-        dragFrom, scrollFrom = cursorY(), sf:GetVerticalScroll()
+        dragFrom, scrollFrom = CursorY(), scroll:GetVerticalScroll()
     end)
     thumb:SetScript("OnMouseUp", function() dragFrom = nil end)
     thumb:SetScript("OnUpdate", function()
         if not dragFrom then return end
-        local h, th = bar:GetHeight(), thumb:GetHeight()
-        if h - th <= 0 then return end
-        local scroll = scrollFrom + (dragFrom - cursorY()) * range() / (h - th)
-        sf:SetVerticalScroll(math.max(0, math.min(range(), scroll)))
+        local travel = bar:GetHeight() - thumb:GetHeight()
+        if travel <= 0 then return end
+        local position = scrollFrom + (dragFrom - CursorY()) * Range() / travel
+        scroll:SetVerticalScroll(math.max(0, math.min(Range(), position)))
     end)
     -- Clicking the track jumps there.
     bar:SetScript("OnMouseDown", function(self)
-        local share = (self:GetTop() - cursorY()) / self:GetHeight()
-        sf:SetVerticalScroll(math.max(0, math.min(range(), share * range())))
+        local share = (self:GetTop() - CursorY()) / self:GetHeight()
+        scroll:SetVerticalScroll(math.max(0, math.min(Range(), share * Range())))
     end)
-    return update
+    return Update
+end
+
+-- A scroll frame with the mouse wheel and an ink scroll bar: the frame, its child, the bar's update.
+local function ScrollArea(parent, width, height)
+    local scroll = CreateFrame("ScrollFrame", nil, parent)
+    scroll:SetSize(width, height)
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetSize(width, 1)
+    scroll:SetScrollChild(child)
+    Wheel(scroll, 40)
+    local updateBar = ScrollBar(scroll)
+    scroll:SetScript("OnVerticalScroll", updateBar)
+    scroll:SetScript("OnScrollRangeChanged", updateBar)
+    return scroll, child, updateBar
 end
 
 ------------------------------------------------------------------------------
@@ -208,68 +244,61 @@ local List = {}
 List.__index = List
 
 function UI.List(parent, width, height)
-    local sf = CreateFrame("ScrollFrame", nil, parent)
-    sf:SetSize(width, height)
-    local child = CreateFrame("Frame", nil, sf)
-    child:SetSize(width, 1)
-    sf:SetScrollChild(child)
-    Wheel(sf, 40)
-    local bar = ScrollBar(sf)
-    sf:SetScript("OnVerticalScroll", bar)
-    sf:SetScript("OnScrollRangeChanged", bar)
-    return setmetatable({ sf = sf, child = child, rows = {}, width = width, rowHeight = 20, bar = bar }, List)
+    local scroll, child, updateBar = ScrollArea(parent, width, height)
+    return setmetatable({ scroll = scroll, child = child, rows = {}, width = width, rowHeight = 20,
+        updateBar = updateBar }, List)
 end
 
 -- items: { { key, left, right, color } }; onClick(key)
 function List:SetItems(items, selected, onClick)
     for i, item in ipairs(items) do
-        local r = self.rows[i]
-        if not r then
-            r = CreateFrame("Button", nil, self.child)
-            r:SetSize(self.width, self.rowHeight)
-            r:SetPoint("TOPLEFT", 0, -(i - 1) * self.rowHeight)
-            local hl = r:CreateTexture(nil, "BACKGROUND")
-            hl:SetAllPoints()
-            hl:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.08)
-            r:SetHighlightTexture(hl)
-            r.sel = r:CreateTexture(nil, "BACKGROUND")
-            r.sel:SetAllPoints()
-            r.sel:SetColorTexture(UI.ACCENT[1], UI.ACCENT[2], UI.ACCENT[3], 0.15)
-            r.left = UI.Text(r, 12)
-            r.left:SetPoint("LEFT", 4, 0)
-            r.left:SetWordWrap(false)
-            r.right = UI.Text(r, 11, UI.FADED)
-            r.right:SetPoint("RIGHT", -4, 0)
-            r.right:SetJustifyH("RIGHT")
-            r.left:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
-            self.rows[i] = r
+        local row = self.rows[i]
+        if not row then
+            row = CreateFrame("Button", nil, self.child)
+            row:SetSize(self.width, self.rowHeight)
+            row:SetPoint("TOPLEFT", 0, -(i - 1) * self.rowHeight)
+            local highlight = row:CreateTexture(nil, "BACKGROUND")
+            highlight:SetAllPoints()
+            highlight:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.08)
+            row:SetHighlightTexture(highlight)
+            row.sel = row:CreateTexture(nil, "BACKGROUND")
+            row.sel:SetAllPoints()
+            row.sel:SetColorTexture(UI.ACCENT[1], UI.ACCENT[2], UI.ACCENT[3], 0.15)
+            row.left = UI.Text(row, 12)
+            row.left:SetPoint("LEFT", 4, 0)
+            row.left:SetWordWrap(false)
+            row.right = UI.Text(row, 11, UI.FADED)
+            row.right:SetPoint("RIGHT", -4, 0)
+            row.right:SetJustifyH("RIGHT")
+            row.left:SetPoint("RIGHT", row.right, "LEFT", -6, 0)
+            self.rows[i] = row
         end
         -- Header rows ({ header = true }) title a group: heading ink, not clickable.
         local header = item.header
-        local c = item.color or (header and UI.ACCENT) or UI.INK
-        r.left:SetFont(header and UI.HEADING_FONT or UI.BODY_FONT, header and 14 or 12, "")
-        r.left:SetPoint("LEFT", header and 2 or (item.indent or 4), 0)
-        r.left:SetText(item.left)
-        r.left:SetTextColor(c[1], c[2], c[3])
-        r.right:SetText(item.right or "")
-        r.sel:SetShown(not header and item.key == selected)
-        r:EnableMouse(not header)
-        r:SetScript("OnClick", function() onClick(item.key) end)
-        r:Show()
+        local ink = item.color or (header and UI.ACCENT) or UI.INK
+        row.left:SetFont(header and UI.HEADING_FONT or UI.BODY_FONT, header and 14 or 12, "")
+        row.left:SetPoint("LEFT", header and 2 or (item.indent or 4), 0)
+        row.left:SetText(item.left)
+        row.left:SetTextColor(ink[1], ink[2], ink[3])
+        row.right:SetText(item.right or "")
+        row.sel:SetShown(not header and item.key == selected)
+        row:EnableMouse(not header)
+        row:SetScript("OnClick", function() onClick(item.key) end)
+        row:Show()
     end
     for i = #items + 1, #self.rows do
         self.rows[i]:Hide()
     end
     self.child:SetHeight(math.max(1, #items * self.rowHeight))
-    self.bar()
-    local max = math.max(0, self.child:GetHeight() - self.sf:GetHeight())
-    if self.sf:GetVerticalScroll() > max then self.sf:SetVerticalScroll(max) end
+    self.updateBar()
+    local maxScroll = math.max(0, self.child:GetHeight() - self.scroll:GetHeight())
+    if self.scroll:GetVerticalScroll() > maxScroll then self.scroll:SetVerticalScroll(maxScroll) end
     -- Arriving by a link: scroll the chosen row into the middle of the list.
     if self.revealKey ~= nil then
         for i, item in ipairs(items) do
             if item.key == self.revealKey then
-                local target = (i - 1) * self.rowHeight - (self.sf:GetHeight() - self.rowHeight) / 2
-                self.sf:SetVerticalScroll(math.max(0, math.min(max, target)))
+                local target = (i - 1) * self.rowHeight - (self.scroll:GetHeight() - self.rowHeight) / 2
+                self.scroll:SetVerticalScroll(math.max(0, math.min(maxScroll, target)))
                 break
             end
         end
@@ -297,36 +326,31 @@ function UI.Link(text, kind, ...)
     return string.format("%s|Hclog:%s|h%s|h|r", UI.LINK, table.concat(parts, ":"), text)
 end
 
+-- A book link's registered kind and its args (a list), or nil for any other link.
 local function LinkKind(link)
     local body = link:match("^clog:(.*)$")
     if not body then return end
     local parts = { strsplit(":", body) }
-    return linkKinds[parts[1]], unpack(parts, 2)
+    return linkKinds[parts[1]], { unpack(parts, 2) }
 end
 
 local function HyperlinkEnter(self, link)
     if link:match("^clog:") then
-        local kind = LinkKind(link)
+        local kind, args = LinkKind(link)
         if not (kind and kind.tip) then return end
-        local title, text = kind.tip(select(2, LinkKind(link)))
-        if not title then return end
-        GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
-        GameTooltip:SetText(title)
-        if text then GameTooltip:AddLine(text, 1, 1, 1, true) end
-        GameTooltip:Show()
+        local title, text = kind.tip(unpack(args))
+        if title then ShowTip(self, "ANCHOR_CURSOR", title, text) end
         return
     end
-    GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
-    GameTooltip:SetHyperlink(link)
-    GameTooltip:Show()
+    ShowLinkTip(self, "ANCHOR_CURSOR", link)
 end
 
 local function HyperlinkClick(_, link, text)
     if link:match("^clog:") then
-        local kind = LinkKind(link)
+        local kind, args = LinkKind(link)
         if kind then
             GameTooltip:Hide()
-            kind.click(select(2, LinkKind(link)))
+            kind.click(unpack(args))
         end
     elseif IsModifiedClick("CHATLINK") and ChatEdit_InsertLink then
         ChatEdit_InsertLink(text) -- shift-click an item into chat, as anywhere else
@@ -340,79 +364,64 @@ end
 local Doc = {}
 Doc.__index = Doc
 
+-- The widgets a page reuses from one render to the next, by kind (Doc:Take).
+local POOLS = { "texts", "items", "cells", "maps", "chips", "pictures", "spotMaps", "bars" }
+
 function UI.Doc(parent, width, height)
-    local sf = CreateFrame("ScrollFrame", nil, parent)
-    sf:SetSize(width, height)
-    local child = CreateFrame("Frame", nil, sf)
-    child:SetSize(width, 1)
-    sf:SetScrollChild(child)
-    Wheel(sf, 40)
+    local scroll, child, updateBar = ScrollArea(parent, width, height)
     -- Item links written into lines show their tooltip on hover; book links act on click.
     child:SetHyperlinksEnabled(true)
     child:SetScript("OnHyperlinkEnter", HyperlinkEnter)
     child:SetScript("OnHyperlinkLeave", GameTooltip_Hide)
     child:SetScript("OnHyperlinkClick", HyperlinkClick)
-
-    -- The page scrolls with the mouse wheel or its scroll bar.
-    local update = ScrollBar(sf)
-    sf:SetScript("OnVerticalScroll", update)
-    sf:SetScript("OnScrollRangeChanged", update)
-    return setmetatable({ sf = sf, child = child, width = width, texts = {}, items = {}, cells = {}, maps = {},
-        y = 0, nt = 0, ni = 0, nc = 0, nm = 0, updateFade = update }, Doc)
+    local doc = setmetatable({ scroll = scroll, child = child, width = width, y = 0, updateBar = updateBar,
+        pools = {}, used = {} }, Doc)
+    for _, kind in ipairs(POOLS) do doc.pools[kind], doc.used[kind] = {}, 0 end
+    return doc
 end
 
--- Starts the page afresh. `subject` names what's being shown (a creature's ID, a day...): when
--- it's the same as last time (a button pressed, new data), the reader's scroll position is
--- kept; a different subject starts at the top.
+-- The next widget of a kind for this render, made by Make(doc) the first time one is needed.
+function Doc:Take(kind, Make)
+    local index = self.used[kind] + 1
+    self.used[kind] = index
+    local pool = self.pools[kind]
+    pool[index] = pool[index] or Make(self)
+    return pool[index]
+end
+
+-- Starts the page afresh. `subject` names what's shown (a creature's ID, a day...): the same as
+-- last time (a button pressed, new data) keeps the reader's scroll; a new one starts at the top.
 function Doc:Clear(subject)
-    self.keepScroll = subject ~= nil and subject == self.subject and self.sf:GetVerticalScroll() or nil
+    self.keepScroll = subject ~= nil and subject == self.subject and self.scroll:GetVerticalScroll() or nil
     self.subject = subject
-    for _, fs in ipairs(self.texts) do fs:Hide() end
-    for _, b in ipairs(self.items) do b:Hide() end
-    self.cells = self.cells or {}
-    for _, c in ipairs(self.cells) do c:Hide() end
-    self.nc = 0
-    self.maps = self.maps or {}
-    for _, m in ipairs(self.maps) do m:Hide() end
-    self.nm = 0
-    self.chips = self.chips or {}
-    for _, c in ipairs(self.chips) do c:Hide() end
-    self.nch = 0
-    self.pictures = self.pictures or {}
-    for _, p in ipairs(self.pictures) do p:Hide() end
-    self.np = 0
-    self.spotMaps = self.spotMaps or {}
-    for _, m in ipairs(self.spotMaps) do m:Hide() end
-    self.nsm = 0
-    self.bars = self.bars or {}
-    for _, b in ipairs(self.bars) do b:Hide() end
-    self.nb = 0
-    self.nt, self.ni, self.y = 0, 0, 0
-    if not self.keepScroll then self.sf:SetVerticalScroll(0) end
+    for _, kind in ipairs(POOLS) do
+        for _, widget in ipairs(self.pools[kind]) do widget:Hide() end
+        self.used[kind] = 0
+    end
+    self.y = 0
+    if not self.keepScroll then self.scroll:SetVerticalScroll(0) end
+end
+
+local function MakeText(doc)
+    local fontString = doc.child:CreateFontString(nil, "OVERLAY")
+    fontString:SetJustifyH("LEFT")
+    fontString:SetShadowOffset(0, 0)
+    return fontString
 end
 
 -- `reserve` keeps that many pixels free at the right end, for action buttons (Doc:Row).
 function Doc:Text(text, size, color, font, indent, reserve)
-    self.nt = self.nt + 1
-    local fs = self.texts[self.nt]
-    if not fs then
-        fs = self.child:CreateFontString(nil, "OVERLAY")
-        fs:SetJustifyH("LEFT")
-        fs:SetShadowOffset(0, 0)
-        self.texts[self.nt] = fs
-    end
+    local fontString = self:Take("texts", MakeText)
     indent = indent or 0
-    fs:SetFont(font or UI.BODY_FONT, size or 12, "")
-    local c = color or UI.INK
-    fs:SetTextColor(c[1], c[2], c[3])
-    fs:ClearAllPoints()
-    fs:SetPoint("TOPLEFT", indent, -self.y)
-    fs:SetWidth(self.width - indent - (reserve or 0))
-    fs:SetWordWrap(true) -- a grid caption (Doc:Label) may have used this line before
-    fs:SetText(text)
-    fs:Show()
-    self.y = self.y + fs:GetStringHeight() + 4
-    return fs
+    SetInk(fontString, size, color, font)
+    fontString:ClearAllPoints()
+    fontString:SetPoint("TOPLEFT", indent, -self.y)
+    fontString:SetWidth(self.width - indent - (reserve or 0))
+    fontString:SetWordWrap(true) -- a grid caption (Doc:Label) may have used this line before
+    fontString:SetText(text)
+    fontString:Show()
+    self.y = self.y + fontString:GetStringHeight() + 4
+    return fontString
 end
 
 function Doc:Title(text)
@@ -428,64 +437,60 @@ end
 
 local CHIP_H, CHIP_GAP = 18, 4
 
-local function SetIcon(tex, a)
-    if a.atlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(a.atlas) then
-        tex:SetAtlas(a.atlas)
-        tex:SetTexCoord(0, 1, 0, 1)
+local function SetIcon(texture, action)
+    if action.atlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(action.atlas) then
+        texture:SetAtlas(action.atlas)
+        texture:SetTexCoord(0, 1, 0, 1)
     else
-        tex:SetTexture(a.icon or "Interface\\Icons\\INV_Misc_Map_01")
-        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        texture:SetTexture(action.icon or "Interface\\Icons\\INV_Misc_Map_01")
+        texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     end
 end
 
-function Doc:Chip(a)
-    self.nch = self.nch + 1
-    local c = self.chips[self.nch]
-    if not c then
-        c = CreateFrame("Button", nil, self.child, "BackdropTemplate")
-        c:SetHeight(CHIP_H)
-        c:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
-        c:SetBackdropColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.08)
-        c:SetBackdropBorderColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.45)
-        local hl = c:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetPoint("TOPLEFT", 1, -1)
-        hl:SetPoint("BOTTOMRIGHT", -1, 1)
-        hl:SetColorTexture(0.11, 0.31, 0.55, 0.15)
-        c.icon = c:CreateTexture(nil, "ARTWORK")
-        c.icon:SetSize(13, 13)
-        c.icon:SetPoint("LEFT", 4, 0)
-        c.text = UI.Text(c, 11, { 0.11, 0.31, 0.55 })
-        c.text:SetPoint("LEFT", c.icon, "RIGHT", 3, 0)
-        c:SetScript("OnEnter", function(b)
-            if not b.tip then return end
-            GameTooltip:SetOwner(b, "ANCHOR_TOP")
-            GameTooltip:SetText(b.tip[1])
-            if b.tip[2] then GameTooltip:AddLine(b.tip[2], 1, 1, 1, true) end
-            GameTooltip:Show()
-        end)
-        c:SetScript("OnLeave", GameTooltip_Hide)
-        self.chips[self.nch] = c
-    end
-    SetIcon(c.icon, a)
-    c.text:SetText(a[1])
-    c.tip = a.tip
-    c:SetScript("OnClick", function()
-        GameTooltip:Hide()
-        a.onClick()
+local function MakeChip(doc)
+    local chip = CreateFrame("Button", nil, doc.child, "BackdropTemplate")
+    chip:SetHeight(CHIP_H)
+    chip:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+    chip:SetBackdropColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.08)
+    chip:SetBackdropBorderColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.45)
+    local highlight = chip:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetPoint("TOPLEFT", 1, -1)
+    highlight:SetPoint("BOTTOMRIGHT", -1, 1)
+    highlight:SetColorTexture(LINK_BLUE[1], LINK_BLUE[2], LINK_BLUE[3], 0.15)
+    chip.icon = chip:CreateTexture(nil, "ARTWORK")
+    chip.icon:SetSize(13, 13)
+    chip.icon:SetPoint("LEFT", 4, 0)
+    chip.text = UI.Text(chip, 11, LINK_BLUE)
+    chip.text:SetPoint("LEFT", chip.icon, "RIGHT", 3, 0)
+    chip:SetScript("OnEnter", function(self)
+        if self.tip then ShowTip(self, "ANCHOR_TOP", self.tip[1], self.tip[2]) end
     end)
-    c:SetWidth(math.ceil(c.text:GetStringWidth()) + 26)
-    return c
+    chip:SetScript("OnLeave", GameTooltip_Hide)
+    return chip
+end
+
+function Doc:Chip(action)
+    local chip = self:Take("chips", MakeChip)
+    SetIcon(chip.icon, action)
+    chip.text:SetText(action[1])
+    chip.tip = action.tip
+    chip:SetScript("OnClick", function()
+        GameTooltip:Hide()
+        action.onClick()
+    end)
+    chip:SetWidth(math.ceil(chip.text:GetStringWidth()) + 26)
+    return chip
 end
 
 -- Places action buttons right-aligned with their top at y; returns the width they take.
 function Doc:PlaceChips(actions, y)
     local x = 0
     for i = #actions, 1, -1 do
-        local c = self:Chip(actions[i])
-        c:ClearAllPoints()
-        c:SetPoint("TOPRIGHT", self.child, "TOPLEFT", self.width - x, -y)
-        c:Show()
-        x = x + c:GetWidth() + CHIP_GAP
+        local chip = self:Chip(actions[i])
+        chip:ClearAllPoints()
+        chip:SetPoint("TOPRIGHT", self.child, "TOPLEFT", self.width - x, -y)
+        chip:Show()
+        x = x + chip:GetWidth() + CHIP_GAP
     end
     return x
 end
@@ -528,8 +533,8 @@ function Doc:Faded(text)
     self:Text(text, 11, UI.FADED, nil, 8)
 end
 
-function Doc:Gap(h)
-    self.y = self.y + (h or 8)
+function Doc:Gap(pixels)
+    self.y = self.y + (pixels or 8)
 end
 
 -- A checklist line: a tick when done, a cross when not (or a waiting mark when `done` is nil).
@@ -539,110 +544,103 @@ function Doc:Check(text, done, color)
     self:Text(CHECK:format(mark) .. text, 12, color or (done and UI.FADED or nil), nil, 8)
 end
 
--- An item with its icon; hover shows the item tooltip.
+local function MakeItem(doc)
+    local button = CreateFrame("Button", nil, doc.child)
+    button:SetSize(doc.width - 8, 20)
+    button.icon = button:CreateTexture(nil, "ARTWORK")
+    button.icon:SetSize(18, 18)
+    button.icon:SetPoint("LEFT")
+    button.text = UI.Text(button, 12)
+    button.text:SetPoint("LEFT", button.icon, "RIGHT", 6, 0)
+    button.text:SetPoint("RIGHT")
+    button.text:SetWordWrap(false)
+    button:SetScript("OnEnter", function(self)
+        if self.link then ShowLinkTip(self, "ANCHOR_RIGHT", self.link) end
+    end)
+    button:SetScript("OnLeave", GameTooltip_Hide)
+    return button
+end
+
+-- An item with its icon; hover shows the item tooltip. Returns its button.
 function Doc:Item(link, suffix, icon)
-    self.ni = self.ni + 1
-    local b = self.items[self.ni]
-    if not b then
-        b = CreateFrame("Button", nil, self.child)
-        b:SetSize(self.width - 8, 20)
-        b.icon = b:CreateTexture(nil, "ARTWORK")
-        b.icon:SetSize(18, 18)
-        b.icon:SetPoint("LEFT")
-        b.text = UI.Text(b, 12)
-        b.text:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
-        b.text:SetPoint("RIGHT")
-        b.text:SetWordWrap(false)
-        b:SetScript("OnEnter", function(self)
-            if self.link then
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetHyperlink(self.link)
-                GameTooltip:Show()
-            end
-        end)
-        b:SetScript("OnLeave", GameTooltip_Hide)
-        self.items[self.ni] = b
-    end
-    b.link = link
-    b.icon:SetTexture(icon or (link and C_Item.GetItemIconByID(link)) or 134400)
-    b.text:SetText(UI.Ink(link) .. (suffix and ("  |cff5c4630" .. suffix .. "|r") or ""))
-    b:ClearAllPoints()
-    b:SetPoint("TOPLEFT", 8, -self.y)
-    b:Show()
+    local button = self:Take("items", MakeItem)
+    button.link = link
+    button.icon:SetTexture(icon or (link and C_Item.GetItemIconByID(link)) or 134400)
+    button.text:SetText(UI.Ink(link) .. (suffix and ("  |cff5c4630" .. suffix .. "|r") or ""))
+    button:ClearAllPoints()
+    button:SetPoint("TOPLEFT", 8, -self.y)
+    button:Show()
     self.y = self.y + 22
+    return button
+end
+
+local CELL_H = 44
+
+local function MakeCell(doc)
+    local cell = CreateFrame("Button", nil, doc.child)
+    cell.bg = cell:CreateTexture(nil, "BACKGROUND")
+    cell.bg:SetAllPoints()
+    cell.bg:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.07)
+    local highlight = cell:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.08)
+    cell.rim = cell:CreateTexture(nil, "ARTWORK")
+    cell.rim:SetSize(38, 38)
+    cell.rim:SetPoint("LEFT", 3, 0)
+    cell.rim:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.6)
+    cell.icon = cell:CreateTexture(nil, "ARTWORK", nil, 1)
+    cell.icon:SetPoint("TOPLEFT", cell.rim, 1, -1)
+    cell.icon:SetPoint("BOTTOMRIGHT", cell.rim, -1, 1)
+    cell.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    cell.name = UI.Text(cell, 11)
+    cell.name:SetPoint("TOPLEFT", cell.rim, "TOPRIGHT", 6, 0)
+    cell.name:SetPoint("RIGHT", -4, 0)
+    cell.name:SetMaxLines(2)
+    cell.note = UI.Text(cell, 11, UI.FADED)
+    cell.note:SetPoint("BOTTOMLEFT", cell.rim, "BOTTOMRIGHT", 6, 0)
+    cell.note:SetPoint("RIGHT", -4, 0)
+    cell.note:SetWordWrap(false)
+    cell:SetScript("OnEnter", function(self)
+        if self.link then
+            ShowLinkTip(self, "ANCHOR_RIGHT", self.link)
+        elseif self.tipTitle then
+            ShowTip(self, "ANCHOR_RIGHT", self.tipTitle, self.tipText)
+        end
+    end)
+    cell:SetScript("OnLeave", GameTooltip_Hide)
+    return cell
 end
 
 -- Items as a merchant-style grid: icon, name (up to two lines) and a note such as the price.
 -- entries = { { link, icon, note } }
-local CELL_H = 44
-function Doc:Grid(entries, cols)
-    cols = cols or 2
+function Doc:Grid(entries, columns)
+    columns = columns or 2
     local gap = 8
-    local cellW = (self.width - 8 - gap * (cols - 1)) / cols
-    for i, e in ipairs(entries) do
-        self.nc = self.nc + 1
-        local c = self.cells[self.nc]
-        if not c then
-            c = CreateFrame("Button", nil, self.child)
-            c.bg = c:CreateTexture(nil, "BACKGROUND")
-            c.bg:SetAllPoints()
-            c.bg:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.07)
-            local hl = c:CreateTexture(nil, "HIGHLIGHT")
-            hl:SetAllPoints()
-            hl:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.08)
-            c.rim = c:CreateTexture(nil, "ARTWORK")
-            c.rim:SetSize(38, 38)
-            c.rim:SetPoint("LEFT", 3, 0)
-            c.rim:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.6)
-            c.icon = c:CreateTexture(nil, "ARTWORK", nil, 1)
-            c.icon:SetPoint("TOPLEFT", c.rim, 1, -1)
-            c.icon:SetPoint("BOTTOMRIGHT", c.rim, -1, 1)
-            c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-            c.name = UI.Text(c, 11)
-            c.name:SetPoint("TOPLEFT", c.rim, "TOPRIGHT", 6, 0)
-            c.name:SetPoint("RIGHT", -4, 0)
-            c.name:SetMaxLines(2)
-            c.note = UI.Text(c, 11, UI.FADED)
-            c.note:SetPoint("BOTTOMLEFT", c.rim, "BOTTOMRIGHT", 6, 0)
-            c.note:SetPoint("RIGHT", -4, 0)
-            c.note:SetWordWrap(false)
-            c:SetScript("OnEnter", function(self)
-                if self.link then
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:SetHyperlink(self.link)
-                    GameTooltip:Show()
-                elseif self.tipTitle then
-                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:SetText(self.tipTitle)
-                    if self.tipText then GameTooltip:AddLine(self.tipText, 1, 1, 1, true) end
-                    GameTooltip:Show()
-                end
-            end)
-            c:SetScript("OnLeave", GameTooltip_Hide)
-            self.cells[self.nc] = c
-        end
-        c.link, c.tipTitle, c.tipText = e.link, e.tipTitle, e.tipText
-        c:SetSize(cellW, CELL_H)
-        c.icon:SetTexture(e.icon or (e.link and C_Item.GetItemIconByID(e.link)) or 134400)
+    local cellWidth = (self.width - 8 - gap * (columns - 1)) / columns
+    for i, entry in ipairs(entries) do
+        local cell = self:Take("cells", MakeCell)
+        cell.link, cell.tipTitle, cell.tipText = entry.link, entry.tipTitle, entry.tipText
+        cell:SetSize(cellWidth, CELL_H)
+        cell.icon:SetTexture(entry.icon or (entry.link and C_Item.GetItemIconByID(entry.link)) or 134400)
         -- Brackets dropped: a grid of "[Item]" reads busier than the merchant window.
         -- Entries without an item link (a trainer's spells) give a plain `name` instead.
-        local name = e.link and UI.Ink(e.link) or e.name or "?"
-        c.name:SetText((name:gsub("%[", ""):gsub("%]", "")))
-        c.note:SetText(e.note or "")
-        c:SetAlpha(e.dim and 0.5 or 1)
-        local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
-        c:ClearAllPoints()
-        c:SetPoint("TOPLEFT", 8 + col * (cellW + gap), -(self.y + row * (CELL_H + 4)))
-        c:Show()
+        local name = entry.link and UI.Ink(entry.link) or entry.name or "?"
+        cell.name:SetText((name:gsub("%[", ""):gsub("%]", "")))
+        cell.note:SetText(entry.note or "")
+        cell:SetAlpha(entry.dim and 0.5 or 1)
+        local column, row = (i - 1) % columns, math.floor((i - 1) / columns)
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", 8 + column * (cellWidth + gap), -(self.y + row * (CELL_H + 4)))
+        cell:Show()
     end
-    self.y = self.y + math.ceil(#entries / cols) * (CELL_H + 4)
+    self.y = self.y + math.ceil(#entries / columns) * (CELL_H + 4)
 end
 
 -- The base map art is the unexplored parchment; the areas you've explored are separate
 -- overlay pieces, cut into 256px tiles. Same layout maths as Blizzard's world map.
 local TILE = 256
-local function TileSize(i, count, total)
-    if i < count then return TILE, TILE end
+local function TileSize(index, count, total)
+    if index < count then return TILE, TILE end
     local pixels = total % TILE
     if pixels == 0 then pixels = TILE end
     local file = 16
@@ -650,33 +648,34 @@ local function TileSize(i, count, total)
     return pixels, file
 end
 
-local function DrawExplored(m, mapID, s)
-    m.overlays = m.overlays or {}
-    for _, t in ipairs(m.overlays) do t:Hide() end
-    local ok, infos = pcall(C_MapExplorationInfo.GetExploredMapTextures, mapID)
-    if not ok or not infos then return end
-    local n = 0
-    for _, info in ipairs(infos) do
-        if not info.isShownByMouseOver then
-            local wide = math.ceil(info.textureWidth / TILE)
-            local tall = math.ceil(info.textureHeight / TILE)
-            for j = 1, tall do
-                local pixelH, fileH = TileSize(j, tall, info.textureHeight)
-                for k = 1, wide do
-                    local pixelW, fileW = TileSize(k, wide, info.textureWidth)
-                    n = n + 1
-                    local t = m.overlays[n]
-                    if not t then
-                        t = m:CreateTexture(nil, "ARTWORK", nil, 1)
-                        m.overlays[n] = t
+local function DrawExplored(canvas, mapID, scale)
+    canvas.overlays = canvas.overlays or {}
+    for _, tile in ipairs(canvas.overlays) do tile:Hide() end
+    local ok, explored = pcall(C_MapExplorationInfo.GetExploredMapTextures, mapID)
+    if not ok or not explored then return end
+    local count = 0
+    for _, piece in ipairs(explored) do
+        if not piece.isShownByMouseOver then
+            local wide = math.ceil(piece.textureWidth / TILE)
+            local tall = math.ceil(piece.textureHeight / TILE)
+            for row = 1, tall do
+                local pixelH, fileH = TileSize(row, tall, piece.textureHeight)
+                for column = 1, wide do
+                    local pixelW, fileW = TileSize(column, wide, piece.textureWidth)
+                    count = count + 1
+                    local tile = canvas.overlays[count]
+                    if not tile then
+                        tile = canvas:CreateTexture(nil, "ARTWORK", nil, 1)
+                        canvas.overlays[count] = tile
                     end
-                    t:SetTexture(info.fileDataIDs[(j - 1) * wide + k], nil, nil, "TRILINEAR")
-                    t:SetTexCoord(0, pixelW / fileW, 0, pixelH / fileH)
-                    t:SetSize(pixelW * s, pixelH * s)
-                    t:ClearAllPoints()
-                    t:SetPoint("TOPLEFT", (info.offsetX + TILE * (k - 1)) * s, -(info.offsetY + TILE * (j - 1)) * s)
-                    t:SetVertexColor(1, 0.93, 0.8)
-                    t:Show()
+                    tile:SetTexture(piece.fileDataIDs[(row - 1) * wide + column], nil, nil, "TRILINEAR")
+                    tile:SetTexCoord(0, pixelW / fileW, 0, pixelH / fileH)
+                    tile:SetSize(pixelW * scale, pixelH * scale)
+                    tile:ClearAllPoints()
+                    tile:SetPoint("TOPLEFT", (piece.offsetX + TILE * (column - 1)) * scale,
+                        -(piece.offsetY + TILE * (row - 1)) * scale)
+                    tile:SetVertexColor(1, 0.93, 0.8)
+                    tile:Show()
                 end
             end
         end
@@ -706,180 +705,174 @@ end
 function UI.Swatch(kind, label)
     local atlas = UI.PIN_ATLAS[kind]
     if HasAtlas(atlas) then return string.format("|A:%s:14:14|a %s", atlas, label) end
-    local c = UI.PIN[kind] or UI.PIN.kill
+    local color = UI.PIN[kind] or UI.PIN.kill
     return string.format("|T%s:9:9:0:0:8:8:0:8:0:8:%d:%d:%d|t %s", WHITE,
-        math.floor(c[1] * 255), math.floor(c[2] * 255), math.floor(c[3] * 255), label)
+        math.floor(color[1] * 255), math.floor(color[2] * 255), math.floor(color[3] * 255), label)
 end
 
-local function PinEnter(d)
-    GameTooltip:SetOwner(d, "ANCHOR_RIGHT")
-    GameTooltip:SetText(d.label)
-    GameTooltip:Show()
+local function PinEnter(pin)
+    ShowTip(pin, "ANCHOR_RIGHT", pin.label)
 end
 
--- Paints a zone map at width w onto `canvas` (base art, your explored areas, a dot per spot
+-- Paints a zone map `width` wide onto `canvas` (base art, your explored areas, a dot per spot
 -- {x, y} from 0-1) and returns its height. Used by the page thumbnails.
-local function PaintMap(canvas, mapID, spots, w, dotSize)
+local function PaintMap(canvas, mapID, spots, width, dotSize)
     canvas.tiles, canvas.dots = canvas.tiles or {}, canvas.dots or {}
-    for _, t in ipairs(canvas.tiles) do t:Hide() end
-    for _, d in ipairs(canvas.dots) do d:Hide() end
+    for _, tile in ipairs(canvas.tiles) do tile:Hide() end
+    for _, pin in ipairs(canvas.dots) do pin:Hide() end
 
-    local h = w * 2 / 3
+    local height = width * 2 / 3
     local ok, layers = pcall(C_Map.GetMapArtLayers, mapID)
     local layer = ok and layers and layers[1]
-    local ok2, textures = pcall(C_Map.GetMapArtLayerTextures, mapID, 1)
-    if layer and ok2 and textures and #textures > 0 then
-        local s = w / layer.layerWidth
-        h = layer.layerHeight * s
-        local cols = math.ceil(layer.layerWidth / layer.tileWidth)
+    local okTextures, textures = pcall(C_Map.GetMapArtLayerTextures, mapID, 1)
+    if layer and okTextures and textures and #textures > 0 then
+        local scale = width / layer.layerWidth
+        height = layer.layerHeight * scale
+        local columns = math.ceil(layer.layerWidth / layer.tileWidth)
         for i, fileID in ipairs(textures) do
-            local t = canvas.tiles[i]
-            if not t then
-                t = canvas:CreateTexture(nil, "ARTWORK")
-                canvas.tiles[i] = t
+            local tile = canvas.tiles[i]
+            if not tile then
+                tile = canvas:CreateTexture(nil, "ARTWORK")
+                canvas.tiles[i] = tile
             end
-            t:SetTexture(fileID)
-            t:SetSize(layer.tileWidth * s, layer.tileHeight * s)
-            t:ClearAllPoints()
-            t:SetPoint("TOPLEFT", ((i - 1) % cols) * layer.tileWidth * s, -math.floor((i - 1) / cols) * layer.tileHeight * s)
-            t:SetVertexColor(1, 0.93, 0.8) -- a little sepia to sit on the parchment
-            t:Show()
+            tile:SetTexture(fileID)
+            tile:SetSize(layer.tileWidth * scale, layer.tileHeight * scale)
+            tile:ClearAllPoints()
+            tile:SetPoint("TOPLEFT", ((i - 1) % columns) * layer.tileWidth * scale,
+                -math.floor((i - 1) / columns) * layer.tileHeight * scale)
+            tile:SetVertexColor(1, 0.93, 0.8) -- a little sepia to sit on the parchment
+            tile:Show()
         end
-        DrawExplored(canvas, mapID, s)
+        DrawExplored(canvas, mapID, scale)
     end
     -- Sized before anything is drawn on it: the view cone's triangles are shaped by moving
     -- texture corners (SetVertexOffset), which does nothing on a canvas with no size yet.
-    canvas:SetSize(w, h)
+    canvas:SetSize(width, height)
 
     for i, spot in ipairs(spots) do
-        local d = canvas.dots[i]
-        if not d then
-            d = CreateFrame("Frame", nil, canvas)
-            d.rim = d:CreateTexture(nil, "OVERLAY", nil, 1)
-            d.rim:SetAllPoints()
-            d.rim:SetColorTexture(0.15, 0.05, 0.02, 1)
-            d.fill = d:CreateTexture(nil, "OVERLAY", nil, 2)
-            d.fill:SetPoint("TOPLEFT", 1, -1)
-            d.fill:SetPoint("BOTTOMRIGHT", -1, 1)
-            d.icon = d:CreateTexture(nil, "OVERLAY", nil, 3)
-            d.icon:SetAllPoints()
-            d:SetScript("OnEnter", PinEnter)
-            d:SetScript("OnLeave", GameTooltip_Hide)
-            canvas.dots[i] = d
+        local pin = canvas.dots[i]
+        if not pin then
+            pin = CreateFrame("Frame", nil, canvas)
+            pin.rim = pin:CreateTexture(nil, "OVERLAY", nil, 1)
+            pin.rim:SetAllPoints()
+            pin.rim:SetColorTexture(0.15, 0.05, 0.02, 1)
+            pin.fill = pin:CreateTexture(nil, "OVERLAY", nil, 2)
+            pin.fill:SetPoint("TOPLEFT", 1, -1)
+            pin.fill:SetPoint("BOTTOMRIGHT", -1, 1)
+            pin.icon = pin:CreateTexture(nil, "OVERLAY", nil, 3)
+            pin.icon:SetAllPoints()
+            pin:SetScript("OnEnter", PinEnter)
+            pin:SetScript("OnLeave", GameTooltip_Hide)
+            canvas.dots[i] = pin
         end
         local atlas = UI.PIN_ATLAS[spot.kind]
         local iconic = HasAtlas(atlas)
-        if iconic then d.icon:SetAtlas(atlas) end
-        d.icon:SetShown(iconic)
-        d.rim:SetShown(not iconic)
-        d.fill:SetShown(not iconic)
-        local c = UI.PIN[spot.kind] or UI.PIN.kill
-        d.fill:SetColorTexture(c[1], c[2], c[3], 1)
+        if iconic then pin.icon:SetAtlas(atlas) end
+        pin.icon:SetShown(iconic)
+        pin.rim:SetShown(not iconic)
+        pin.fill:SetShown(not iconic)
+        local color = UI.PIN[spot.kind] or UI.PIN.kill
+        pin.fill:SetColorTexture(color[1], color[2], color[3], 1)
         -- Icon pins sit above the dots so a quest giver isn't buried under kill spots.
-        d:SetFrameLevel(canvas:GetFrameLevel() + (iconic and 4 or 2))
+        pin:SetFrameLevel(canvas:GetFrameLevel() + (iconic and 4 or 2))
         -- Labelled pins answer hover with their label; clicks still reach the map underneath
         -- (to put it on the world map).
-        d.label = spot.label
-        d:SetMouseMotionEnabled(spot.label ~= nil)
-        d:SetMouseClickEnabled(false)
+        pin.label = spot.label
+        pin:SetMouseMotionEnabled(spot.label ~= nil)
+        pin:SetMouseClickEnabled(false)
         local size = iconic and math.floor(dotSize * 2.4) or dotSize
-        d:SetSize(size, size)
-        d:ClearAllPoints()
-        d:SetPoint("CENTER", canvas, "TOPLEFT", spot[1] * w, -spot[2] * h)
-        d:Show()
+        pin:SetSize(size, size)
+        pin:ClearAllPoints()
+        pin:SetPoint("CENTER", canvas, "TOPLEFT", spot[1] * width, -spot[2] * height)
+        pin:Show()
     end
 
     -- View cones for spots that say which way they faced (pictures).
     canvas.cones = canvas.cones or {}
     for _, cone in ipairs(canvas.cones) do
-        for _, l in ipairs(cone.fill) do l:Hide() end
-        for _, l in ipairs(cone.lines) do l:Hide() end
+        for _, line in ipairs(cone.fill) do line:Hide() end
+        for _, line in ipairs(cone.lines) do line:Hide() end
     end
-    local n = 0
+    local count = 0
     for _, spot in ipairs(spots) do
         if spot.facing then
-            n = n + 1
-            canvas.cones[n] = canvas.cones[n] or { fill = {}, lines = {} }
-            UI.DrawCone(canvas, canvas.cones[n], spot[1] * w, spot[2] * h, spot.facing, spot.fov, w * UI.CONE_SHARE)
+            count = count + 1
+            canvas.cones[count] = canvas.cones[count] or { fill = {}, lines = {} }
+            UI.DrawCone(canvas, canvas.cones[count], spot[1] * width, spot[2] * height, spot.facing, spot.fov,
+                width * UI.CONE_SHARE)
         end
     end
-    return h
+    return height
 end
 
 -- A filled triangle in `frame`'s coordinates (x right, y down from its top-left): a plain
--- texture over the triangle's bounding box with its corners moved onto the three points (the
--- fourth folded onto the third).
+-- texture over its bounding box, with its corners moved onto the points (the fourth onto the third).
 local UL, LL, UR, LR = UPPER_LEFT_VERTEX or 1, LOWER_LEFT_VERTEX or 2, UPPER_RIGHT_VERTEX or 3, LOWER_RIGHT_VERTEX or 4
-function UI.DrawTriangle(t, frame, ax, ay, bx, by, cx, cy)
+function UI.DrawTriangle(texture, frame, ax, ay, bx, by, cx, cy)
     local minX, maxX = math.min(ax, bx, cx), math.max(ax, bx, cx)
     local minY, maxY = math.min(ay, by, cy), math.max(ay, by, cy)
     maxX, maxY = math.max(maxX, minX + 0.01), math.max(maxY, minY + 0.01)
-    t:ClearAllPoints()
-    t:SetPoint("TOPLEFT", frame, "TOPLEFT", minX, -minY)
-    t:SetSize(maxX - minX, maxY - minY)
+    texture:ClearAllPoints()
+    texture:SetPoint("TOPLEFT", frame, "TOPLEFT", minX, -minY)
+    texture:SetSize(maxX - minX, maxY - minY)
     -- Offsets are from each corner's own place, with y pointing up.
-    t:SetVertexOffset(UL, ax - minX, -(ay - minY))
-    t:SetVertexOffset(LL, bx - minX, -(by - maxY))
-    t:SetVertexOffset(UR, cx - maxX, -(cy - minY))
-    t:SetVertexOffset(LR, cx - maxX, -(cy - maxY))
-    t:Show()
+    texture:SetVertexOffset(UL, ax - minX, -(ay - minY))
+    texture:SetVertexOffset(LL, bx - minX, -(by - maxY))
+    texture:SetVertexOffset(UR, cx - maxX, -(cy - minY))
+    texture:SetVertexOffset(LR, cx - maxX, -(cy - maxY))
+    texture:Show()
 end
 
--- What a picture captured: a gold wedge from where you stood, the way you faced, as wide as
--- the camera sees. facing: radians, 0 = north, anticlockwise (as GetPlayerFacing gives it).
--- Drawn with lines only (texture-corner triangles drew as rectangles here): the fill is rings
--- of short curved bands, one inside the next, so they barely overlap and the colour is even;
--- the outline is the two edges and the curved far end.
--- reach: how far the cone extends, in the canvas's own units.
+-- What a picture captured: a gold wedge from where you stood, the way you faced (radians, 0 = north,
+-- anticlockwise), as wide as the camera sees, `reach` long. Lines only (corner-moved triangles drew as
+-- rectangles here): rings of short curved bands for an even fill, then the two edges and the far curve.
 local RINGS, SEGMENT = 8, 10 -- bands from the spot outward; roughly how long each piece of a band is
 UI.CONE_SHARE = 0.08 -- the cone's reach as a share of its map's width, here and on the world map
 function UI.DrawCone(canvas, cone, x, y, facing, fov, reach)
     local half = math.rad(math.max(25, math.min(60, (fov or 90) / 2)))
-    local function point(r, a) return x - math.sin(a) * r, y - math.cos(a) * r end
-    local c = UI.PIN.place
-    local function line(pool, i, layer, thick, r, g, b, a, x1, y1, x2, y2)
-        local l = pool[i]
-        if not l then
-            l = canvas:CreateLine(nil, "ARTWORK", nil, layer)
-            pool[i] = l
+    local function Point(radius, angle) return x - math.sin(angle) * radius, y - math.cos(angle) * radius end
+    local color = UI.PIN.place
+    local function Line(pool, index, layer, thickness, r, g, b, a, x1, y1, x2, y2)
+        local line = pool[index]
+        if not line then
+            line = canvas:CreateLine(nil, "ARTWORK", nil, layer)
+            pool[index] = line
         end
-        l:SetThickness(thick)
-        l:SetColorTexture(r, g, b, a)
-        l:SetStartPoint("TOPLEFT", canvas, x1, -y1)
-        l:SetEndPoint("TOPLEFT", canvas, x2, -y2)
-        l:Show()
+        line:SetThickness(thickness)
+        line:SetColorTexture(r, g, b, a)
+        line:SetStartPoint("TOPLEFT", canvas, x1, -y1)
+        line:SetEndPoint("TOPLEFT", canvas, x2, -y2)
+        line:Show()
     end
     -- The fill: each ring a chain of short pieces along its arc, as thick as the ring is wide.
-    local dr, n = reach / RINGS, 0
+    local ringWidth, fillCount = reach / RINGS, 0
     for ring = 1, RINGS do
-        local r = (ring - 0.5) * dr
-        local pieces = math.max(1, math.ceil(2 * half * r / SEGMENT))
-        for k = 0, pieces - 1 do
-            local a1 = facing - half + 2 * half * k / pieces
-            local a2 = facing - half + 2 * half * (k + 1) / pieces
-            local x1, y1 = point(r, a1)
-            local x2, y2 = point(r, a2)
-            n = n + 1
-            line(cone.fill, n, 2, dr, c[1], c[2], c[3], 0.3, x1, y1, x2, y2)
+        local radius = (ring - 0.5) * ringWidth
+        local pieces = math.max(1, math.ceil(2 * half * radius / SEGMENT))
+        for piece = 0, pieces - 1 do
+            local x1, y1 = Point(radius, facing - half + 2 * half * piece / pieces)
+            local x2, y2 = Point(radius, facing - half + 2 * half * (piece + 1) / pieces)
+            fillCount = fillCount + 1
+            Line(cone.fill, fillCount, 2, ringWidth, color[1], color[2], color[3], 0.3, x1, y1, x2, y2)
         end
     end
-    for i = n + 1, #cone.fill do cone.fill[i]:Hide() end
+    for i = fillCount + 1, #cone.fill do cone.fill[i]:Hide() end
     -- The outline: both edges, then the far end as a curve, so it reads over bright map art.
-    local er, eg, eb = c[1] * 0.6, c[2] * 0.6, c[3] * 0.4
-    local m = 0
-    for _, a in ipairs({ facing - half, facing + half }) do
-        local ex, ey = point(reach, a)
-        m = m + 1
-        line(cone.lines, m, 3, 1.5, er, eg, eb, 0.9, x, y, ex, ey)
+    local edgeR, edgeG, edgeB = color[1] * 0.6, color[2] * 0.6, color[3] * 0.4
+    local lineCount = 0
+    for _, angle in ipairs({ facing - half, facing + half }) do
+        local endX, endY = Point(reach, angle)
+        lineCount = lineCount + 1
+        Line(cone.lines, lineCount, 3, 1.5, edgeR, edgeG, edgeB, 0.9, x, y, endX, endY)
     end
     local pieces = math.max(2, math.ceil(2 * half * reach / SEGMENT))
-    for k = 0, pieces - 1 do
-        local x1, y1 = point(reach, facing - half + 2 * half * k / pieces)
-        local x2, y2 = point(reach, facing - half + 2 * half * (k + 1) / pieces)
-        m = m + 1
-        line(cone.lines, m, 3, 1.5, er, eg, eb, 0.9, x1, y1, x2, y2)
+    for piece = 0, pieces - 1 do
+        local x1, y1 = Point(reach, facing - half + 2 * half * piece / pieces)
+        local x2, y2 = Point(reach, facing - half + 2 * half * (piece + 1) / pieces)
+        lineCount = lineCount + 1
+        Line(cone.lines, lineCount, 3, 1.5, edgeR, edgeG, edgeB, 0.9, x1, y1, x2, y2)
     end
-    for i = m + 1, #cone.lines do cone.lines[i]:Hide() end
+    for i = lineCount + 1, #cone.lines do cone.lines[i]:Hide() end
 end
 
 -- Puts the game's own waypoint pin on the world map (with the on-screen arrow) and opens the
@@ -909,38 +902,35 @@ function UI.Waypoint(mapID, x, y, label)
     ns.MapPins.Open(mapID)
 end
 
+local function MakeMap(doc)
+    local map = CreateFrame("Button", nil, doc.child, "BackdropTemplate")
+    map:SetClipsChildren(true)
+    map:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+    map:SetBackdropColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.08)
+    map:SetBackdropBorderColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.5)
+    map:SetScript("OnClick", function(self)
+        if self.layer then ns.MapPins.Show(self.layer[1], self.layer[2], self.mapID) else ns.MapPins.Open(self.mapID) end
+    end)
+    map:SetScript("OnEnter", function(self)
+        ShowTip(self, "ANCHOR_CURSOR", L["Show on your world map"],
+            L["Pins these to the game's map. Right-click a pin there to remove it."])
+    end)
+    map:SetScript("OnLeave", GameTooltip_Hide)
+    return map
+end
+
 -- The page thumbnail. Clicking it pins `layer` ({ kind, id }, see MapPins.lua) to the game's
 -- world map and opens it there. A page can hold several.
 function Doc:Map(mapID, spots, layer)
-    self.nm = self.nm + 1
-    local m = self.maps[self.nm]
-    if not m then
-        m = CreateFrame("Button", nil, self.child, "BackdropTemplate")
-        m:SetClipsChildren(true)
-        m:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
-        m:SetBackdropColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.08)
-        m:SetBackdropBorderColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.5)
-        m:SetScript("OnClick", function(b)
-            if b.layer then ns.MapPins.Show(b.layer[1], b.layer[2], b.mapID) else ns.MapPins.Open(b.mapID) end
-        end)
-        m:SetScript("OnEnter", function(b)
-            GameTooltip:SetOwner(b, "ANCHOR_CURSOR")
-            GameTooltip:SetText(L["Show on your world map"])
-            GameTooltip:AddLine(L["Pins these to the game's map. Right-click a pin there to remove it."], 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        m:SetScript("OnLeave", GameTooltip_Hide)
-        self.maps[self.nm] = m
-    end
-    m.mapID, m.spots, m.layer = mapID, spots, layer
-
-    local w = self.width - 8
-    local h = PaintMap(m, mapID, spots, w, 6)
-    m:SetSize(w, h)
-    m:ClearAllPoints()
-    m:SetPoint("TOPLEFT", 8, -self.y)
-    m:Show()
-    self.y = self.y + h + 4
+    local map = self:Take("maps", MakeMap)
+    map.mapID, map.spots, map.layer = mapID, spots, layer
+    local width = self.width - 8
+    local height = PaintMap(map, mapID, spots, width, 6)
+    map:SetSize(width, height)
+    map:ClearAllPoints()
+    map:SetPoint("TOPLEFT", 8, -self.y)
+    map:Show()
+    self.y = self.y + height + 4
     self:Faded(layer and L["Click the map to show these on your world map."] or L["Click the map to open it on your world map."])
 end
 
@@ -951,13 +941,13 @@ end
 local viewer
 
 -- Crops a texture of the given shape (width / height) to fill a frame of another, evenly.
-local function CropTo(tex, aspect, frameAspect)
+local function CropTo(texture, aspect, frameAspect)
     if aspect > frameAspect then
         local cut = (1 - frameAspect / aspect) / 2
-        tex:SetTexCoord(cut, 1 - cut, 0, 1)
+        texture:SetTexCoord(cut, 1 - cut, 0, 1)
     else
         local cut = (1 - aspect / frameAspect) / 2
-        tex:SetTexCoord(0, 1, cut, 1 - cut)
+        texture:SetTexCoord(0, 1, cut, 1 - cut)
     end
 end
 
@@ -987,11 +977,11 @@ function UI.ShowPhoto(path, title, aspect)
     end
     -- Uncropped, in its own shape, within 85% of the screen either way.
     aspect = aspect or 2
-    local w = math.min(1400, UIParent:GetWidth() * 0.85)
-    local h = w / aspect
-    local maxH = UIParent:GetHeight() * 0.85 - 54
-    if h > maxH then h, w = maxH, maxH * aspect end
-    viewer:SetSize(w + 28, h + 54)
+    local width = math.min(1400, UIParent:GetWidth() * 0.85)
+    local height = width / aspect
+    local maxHeight = UIParent:GetHeight() * 0.85 - 54
+    if height > maxHeight then height, width = maxHeight, maxHeight * aspect end
+    viewer:SetSize(width + 28, height + 54)
     viewer.image:SetTexture(path)
     viewer.image:SetTexCoord(0, 1, 0, 1)
     viewer.title:SetText(title or "")
@@ -999,169 +989,153 @@ function UI.ShowPhoto(path, title, aspect)
     viewer:Raise()
 end
 
--- A picture in a 2:1 frame at x, y (from the page's top-left), w wide, cropped evenly to fill
--- it (aspect = the picture's own width / height); click it to see the whole picture.
-function Doc:PlacePicture(path, title, aspect, x, y, w)
-    self.np = self.np + 1
-    local b = self.pictures[self.np]
-    if not b then
-        b = CreateFrame("Button", nil, self.child, "BackdropTemplate")
-        b:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
-        b:SetBackdropColor(0, 0, 0, 0.6)
-        b:SetBackdropBorderColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.6)
-        b.image = b:CreateTexture(nil, "ARTWORK")
-        b.image:SetPoint("TOPLEFT", 1, -1)
-        b.image:SetPoint("BOTTOMRIGHT", -1, 1)
-        b:SetScript("OnClick", function(f) UI.ShowPhoto(f.path, f.title, f.aspect) end)
-        b:SetScript("OnEnter", function(f)
-            GameTooltip:SetOwner(f, "ANCHOR_CURSOR")
-            GameTooltip:SetText(L["Click to see it whole"])
-            GameTooltip:Show()
-        end)
-        b:SetScript("OnLeave", GameTooltip_Hide)
-        self.pictures[self.np] = b
-    end
-    b.image:SetTexture(path)
-    b.path, b.title, b.aspect = path, title, aspect or 2
-    CropTo(b.image, b.aspect, 2)
-    b:SetSize(w, w / 2)
-    b:ClearAllPoints()
-    b:SetPoint("TOPLEFT", x, -y)
-    b:Show()
+local function MakePicture(doc)
+    local button = CreateFrame("Button", nil, doc.child, "BackdropTemplate")
+    button:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+    button:SetBackdropColor(0, 0, 0, 0.6)
+    button:SetBackdropBorderColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.6)
+    button.image = button:CreateTexture(nil, "ARTWORK")
+    button.image:SetPoint("TOPLEFT", 1, -1)
+    button.image:SetPoint("BOTTOMRIGHT", -1, 1)
+    button:SetScript("OnClick", function(self) UI.ShowPhoto(self.path, self.title, self.aspect) end)
+    button:SetScript("OnEnter", function(self) ShowTip(self, "ANCHOR_CURSOR", L["Click to see it whole"]) end)
+    button:SetScript("OnLeave", GameTooltip_Hide)
+    return button
 end
 
--- A close-up of the map around one spot, in a 2:1 frame at x, y, w wide: the map drawn zoomed
--- in and moved so the spot sits in the middle (or as near as the map's edge allows), with its
--- pin and view cone. A click runs onClick (marking it on the world map), or opens that map.
+-- A picture in a 2:1 frame at x, y (from the page's top-left), `width` wide, cropped evenly to fill
+-- it (aspect = the picture's own width / height); click it to see the whole picture.
+function Doc:PlacePicture(path, title, aspect, x, y, width)
+    local button = self:Take("pictures", MakePicture)
+    button.image:SetTexture(path)
+    button.path, button.title, button.aspect = path, title, aspect or 2
+    CropTo(button.image, button.aspect, 2)
+    button:SetSize(width, width / 2)
+    button:ClearAllPoints()
+    button:SetPoint("TOPLEFT", x, -y)
+    button:Show()
+end
+
+local function MakeSpotMap(doc)
+    local frame = CreateFrame("Button", nil, doc.child, "BackdropTemplate")
+    frame:SetClipsChildren(true)
+    frame:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+    frame:SetBackdropColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.15)
+    frame:SetBackdropBorderColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.6)
+    frame.canvas = CreateFrame("Frame", nil, frame)
+    frame:SetScript("OnClick", function(self)
+        if self.onClick then self.onClick() else ns.MapPins.Open(self.mapID) end
+    end)
+    frame:SetScript("OnEnter", function(self)
+        ShowTip(self, "ANCHOR_CURSOR", self.label or L["Where it was taken"],
+            self.onClick and L["Click to mark it on your world map"] or L["Click to open it on your world map"])
+    end)
+    frame:SetScript("OnLeave", GameTooltip_Hide)
+    return frame
+end
+
+-- A close-up of the map around one spot, in a 2:1 frame at x, y, `width` wide: zoomed in and moved
+-- so the spot sits in the middle (as near as the map's edge allows), with its pin and view cone. A
+-- click runs onClick (marking it on the world map), or opens that map.
 local SPOT_ZOOM = 3
-function Doc:PlaceSpotMap(mapID, spot, x, y, w, onClick)
-    self.nsm = (self.nsm or 0) + 1
-    self.spotMaps = self.spotMaps or {}
-    local f = self.spotMaps[self.nsm]
-    if not f then
-        f = CreateFrame("Button", nil, self.child, "BackdropTemplate")
-        f:SetClipsChildren(true)
-        f:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
-        f:SetBackdropColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.15)
-        f:SetBackdropBorderColor(UI.INK[1], UI.INK[2], UI.INK[3], 0.6)
-        f.canvas = CreateFrame("Frame", nil, f)
-        f:SetScript("OnClick", function(b)
-            if b.onClick then b.onClick() else ns.MapPins.Open(b.mapID) end
-        end)
-        f:SetScript("OnEnter", function(b)
-            GameTooltip:SetOwner(b, "ANCHOR_CURSOR")
-            GameTooltip:SetText(b.label or L["Where it was taken"])
-            GameTooltip:AddLine(b.onClick and L["Click to mark it on your world map"] or L["Click to open it on your world map"], 1, 1, 1)
-            GameTooltip:Show()
-        end)
-        f:SetScript("OnLeave", GameTooltip_Hide)
-        self.spotMaps[self.nsm] = f
-    end
-    local h = w / 2
-    f.mapID, f.label, f.onClick = mapID, spot.label, onClick
-    f:SetSize(w, h)
-    f:ClearAllPoints()
-    f:SetPoint("TOPLEFT", x, -y)
-    local cw = w * SPOT_ZOOM
-    local ch = PaintMap(f.canvas, mapID, { spot }, cw, 8)
-    f.canvas:SetSize(cw, ch)
+function Doc:PlaceSpotMap(mapID, spot, x, y, width, onClick)
+    local frame = self:Take("spotMaps", MakeSpotMap)
+    local height = width / 2
+    frame.mapID, frame.label, frame.onClick = mapID, spot.label, onClick
+    frame:SetSize(width, height)
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", x, -y)
+    local canvasWidth = width * SPOT_ZOOM
+    local canvasHeight = PaintMap(frame.canvas, mapID, { spot }, canvasWidth, 8)
+    frame.canvas:SetSize(canvasWidth, canvasHeight)
     -- How far the canvas shifts left and up (both <= 0), keeping the frame covered.
-    local left = math.max(w - cw, math.min(0, w / 2 - spot[1] * cw))
-    local up = math.max(h - ch, math.min(0, h / 2 - spot[2] * ch))
-    f.canvas:ClearAllPoints()
-    f.canvas:SetPoint("TOPLEFT", left, -up)
-    f:Show()
+    local left = math.max(width - canvasWidth, math.min(0, width / 2 - spot[1] * canvasWidth))
+    local up = math.max(height - canvasHeight, math.min(0, height / 2 - spot[2] * canvasHeight))
+    frame.canvas:ClearAllPoints()
+    frame.canvas:SetPoint("TOPLEFT", left, -up)
+    frame:Show()
 end
 
 -- Full-width versions, written at the current line.
 function Doc:Picture(path, title, aspect)
-    local w = self.width - 8
-    self:PlacePicture(path, title, aspect, 8, self.y, w)
-    self.y = self.y + w / 2 + 6
+    local width = self.width - 8
+    self:PlacePicture(path, title, aspect, 8, self.y, width)
+    self.y = self.y + width / 2 + 6
     return true
 end
 
 function Doc:SpotMap(mapID, spot)
-    local w = self.width - 8
-    self:PlaceSpotMap(mapID, spot, 8, self.y, w)
-    self.y = self.y + w / 2 + 6
+    local width = self.width - 8
+    self:PlaceSpotMap(mapID, spot, 8, self.y, width)
+    self.y = self.y + width / 2 + 6
 end
 
--- One line of small text at x, y, cut to w wide (grid captions); doesn't move the page on.
-function Doc:Label(text, x, y, w, color)
-    self.nt = self.nt + 1
-    local fs = self.texts[self.nt]
-    if not fs then
-        fs = self.child:CreateFontString(nil, "OVERLAY")
-        fs:SetShadowOffset(0, 0)
-        self.texts[self.nt] = fs
-    end
-    fs:SetFont(UI.BODY_FONT, 11, "")
-    local c = color or UI.FADED
-    fs:SetTextColor(c[1], c[2], c[3])
-    fs:SetJustifyH("LEFT")
-    fs:ClearAllPoints()
-    fs:SetPoint("TOPLEFT", x, -y)
-    fs:SetWidth(w)
-    fs:SetWordWrap(false)
-    fs:SetText(text)
-    fs:Show()
+-- One line of small text at x, y, cut to `width` wide (grid captions); doesn't move the page on.
+function Doc:Label(text, x, y, width, color)
+    local fontString = self:Take("texts", MakeText)
+    SetInk(fontString, 11, color or UI.FADED)
+    fontString:SetJustifyH("LEFT")
+    fontString:ClearAllPoints()
+    fontString:SetPoint("TOPLEFT", x, -y)
+    fontString:SetWidth(width)
+    fontString:SetWordWrap(false)
+    fontString:SetText(text)
+    fontString:Show()
+end
+
+local function MakeBar(doc)
+    local bar = CreateFrame("Frame", nil, doc.child)
+    bar:SetHeight(26)
+    bar.label = UI.Text(bar, 12)
+    bar.label:SetPoint("TOPLEFT", 0, 0)
+    bar.label:SetWordWrap(false)
+    bar.right = UI.Text(bar, 11, UI.FADED)
+    bar.right:SetPoint("TOPRIGHT", 0, 0)
+    bar.right:SetJustifyH("RIGHT")
+    bar.label:SetPoint("RIGHT", bar.right, "LEFT", -6, 0)
+    bar.track = bar:CreateTexture(nil, "ARTWORK")
+    bar.track:SetPoint("BOTTOMLEFT", 0, 5)
+    bar.track:SetPoint("BOTTOMRIGHT", 0, 5)
+    bar.track:SetHeight(6)
+    bar.track:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.12)
+    bar.fill = bar:CreateTexture(nil, "ARTWORK", nil, 1)
+    bar.fill:SetPoint("TOPLEFT", bar.track)
+    bar.fill:SetHeight(6)
+    return bar
 end
 
 -- A labelled bar: the label on the left, `right` (an amount) on the right, and an inked bar
 -- beneath, filled value / max of the way. color = { r, g, b } for the fill.
 function Doc:Bar(label, value, max, right, color)
-    self.nb = (self.nb or 0) + 1
-    self.bars = self.bars or {}
-    local b = self.bars[self.nb]
-    if not b then
-        b = CreateFrame("Frame", nil, self.child)
-        b:SetHeight(26)
-        b.label = UI.Text(b, 12)
-        b.label:SetPoint("TOPLEFT", 0, 0)
-        b.label:SetWordWrap(false)
-        b.right = UI.Text(b, 11, UI.FADED)
-        b.right:SetPoint("TOPRIGHT", 0, 0)
-        b.right:SetJustifyH("RIGHT")
-        b.label:SetPoint("RIGHT", b.right, "LEFT", -6, 0)
-        b.track = b:CreateTexture(nil, "ARTWORK")
-        b.track:SetPoint("BOTTOMLEFT", 0, 5)
-        b.track:SetPoint("BOTTOMRIGHT", 0, 5)
-        b.track:SetHeight(6)
-        b.track:SetColorTexture(UI.INK[1], UI.INK[2], UI.INK[3], 0.12)
-        b.fill = b:CreateTexture(nil, "ARTWORK", nil, 1)
-        b.fill:SetPoint("TOPLEFT", b.track)
-        b.fill:SetHeight(6)
-        self.bars[self.nb] = b
-    end
-    local w = self.width - 8
-    b:SetWidth(w)
-    b.label:SetText(label)
-    b.right:SetText(right or "")
+    local bar = self:Take("bars", MakeBar)
+    local width = self.width - 8
+    bar:SetWidth(width)
+    bar.label:SetText(label)
+    bar.right:SetText(right or "")
     local share = (max and max > 0) and math.max(0, math.min(1, (value or 0) / max)) or 0
-    b.fill:SetWidth(math.max(0.01, w * share))
-    b.fill:SetShown(share > 0)
-    local c = color or UI.ACCENT
-    b.fill:SetColorTexture(c[1], c[2], c[3], 0.8)
-    b:ClearAllPoints()
-    b:SetPoint("TOPLEFT", 8, -self.y)
-    b:Show()
+    bar.fill:SetWidth(math.max(0.01, width * share))
+    bar.fill:SetShown(share > 0)
+    local fill = color or UI.ACCENT
+    bar.fill:SetColorTexture(fill[1], fill[2], fill[3], 0.8)
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", 8, -self.y)
+    bar:Show()
     self.y = self.y + 28
 end
 
 function Doc:Finish()
     self.child:SetHeight(math.max(1, self.y))
     if self.keepScroll then
-        local max = math.max(0, self.y - self.sf:GetHeight())
-        self.sf:SetVerticalScroll(math.min(self.keepScroll, max))
+        local maxScroll = math.max(0, self.y - self.scroll:GetHeight())
+        self.scroll:SetVerticalScroll(math.min(self.keepScroll, maxScroll))
         self.keepScroll = nil
     end
-    self.updateFade()
+    self.updateBar()
 end
 
 function Doc:ScrollToEnd()
     C_Timer.After(0, function()
-        self.sf:SetVerticalScroll(math.max(0, self.child:GetHeight() - self.sf:GetHeight()))
+        self.scroll:SetVerticalScroll(math.max(0, self.child:GetHeight() - self.scroll:GetHeight()))
     end)
 end
 
@@ -1169,40 +1143,40 @@ end
 -- Controls
 ------------------------------------------------------------------------------
 
-function UI.Button(parent, text, w, h)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetSize(w, h or 22)
-    b:SetText(text)
-    return b
+function UI.Button(parent, text, width, height)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(width, height or 22)
+    button:SetText(text)
+    return button
 end
 
 function UI.Checkbox(parent, text, get, set)
-    local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
-    cb:SetSize(24, 24)
-    local label = UI.Text(cb, 12)
-    label:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+    local checkbox = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    checkbox:SetSize(24, 24)
+    local label = UI.Text(checkbox, 12)
+    label:SetPoint("LEFT", checkbox, "RIGHT", 4, 0)
     label:SetText(text)
-    cb:SetScript("OnShow", function(self) self:SetChecked(get()) end)
-    cb:SetScript("OnClick", function(self) set(self:GetChecked()) end)
-    cb:SetChecked(get())
-    return cb
+    checkbox:SetScript("OnShow", function(self) self:SetChecked(get()) end)
+    checkbox:SetScript("OnClick", function(self) set(self:GetChecked()) end)
+    checkbox:SetChecked(get())
+    return checkbox
 end
 
 function UI.SearchBox(parent, width, onChange)
-    local eb = CreateFrame("EditBox", nil, parent, "SearchBoxTemplate")
-    eb:SetSize(width, 20)
-    eb:HookScript("OnTextChanged", function(self) onChange(self:GetText()) end)
-    return eb
+    local box = CreateFrame("EditBox", nil, parent, "SearchBoxTemplate")
+    box:SetSize(width, 20)
+    box:HookScript("OnTextChanged", function(self) onChange(self:GetText()) end)
+    return box
 end
 
 -- Blizzard's modern dropdown over a fixed list of { value, label } options.
 function UI.Dropdown(parent, width, options, get, set)
-    local dd = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
-    dd:SetWidth(width)
-    dd:SetupMenu(function(_, root)
-        for _, opt in ipairs(options) do
-            root:CreateRadio(opt[2], function() return get() == opt[1] end, function() set(opt[1]) end)
+    local dropdown = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+    dropdown:SetWidth(width)
+    dropdown:SetupMenu(function(_, root)
+        for _, option in ipairs(options) do
+            root:CreateRadio(option[2], function() return get() == option[1] end, function() set(option[1]) end)
         end
     end)
-    return dd
+    return dropdown
 end

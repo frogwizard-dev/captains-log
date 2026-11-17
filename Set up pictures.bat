@@ -1,5 +1,5 @@
 @echo off
-title Captain's Log - set up pictures
+title Captain's Log: set up pictures
 rem Lets Captain's Log show your screenshots. The game only reads files inside Interface\AddOns,
 rem so this links the Screenshots folder in as Interface\AddOns\CaptainsLogShots (a junction:
 rem nothing is copied or moved, and deleting the link never touches your screenshots). It has

@@ -49,10 +49,7 @@ function CaptainsLog_Toggle() ns.Book:Toggle() end
 -- Writing it down
 ------------------------------------------------------------------------------
 
-local function Clean(v)
-    if type(v) ~= "string" or issecret(v) or v == "" then return nil end
-    return v
-end
+local Clean = ns.PlainText
 
 local function Group()
     local names = {}
@@ -68,27 +65,26 @@ local function Group()
 end
 
 -- The file the game just saved: WoWScrnShot_MMDDYY_HHMMSS, in your chosen format.
-local EXT = { jpeg = "jpg", jpg = "jpg", png = "png", tga = "tga" }
-local function FileName(t)
+local EXTENSIONS = { jpeg = "jpg", jpg = "jpg", png = "png", tga = "tga" }
+local function FileName(when)
     local format = GetCVar and GetCVar("screenshotFormat") or "jpeg"
-    return ("WoWScrnShot_%s.%s"):format(date("%m%d%y_%H%M%S", t), EXT[format] or "jpg")
+    return ("WoWScrnShot_%s.%s"):format(date("%m%d%y_%H%M%S", when), EXTENSIONS[format] or "jpg")
 end
 
 local function Record()
-    local t = time()
+    local now = time()
     local mapID, x, y = ns.Position()
     local target = UnitExists("target") and FrogLib.Unit.IsPlayer("target") == false and Clean(UnitName("target")) or nil
     local photo = {
-        t = t, file = FileName(t),
+        t = now, file = FileName(now),
         zone = ns.Zone(), place = Clean(GetSubZoneText and GetSubZoneText()),
         mapID = mapID, x = x, y = y, level = UnitLevel("player"),
         target = target, group = Group(),
     }
     -- The screenshot is the size of your screen; kept so the picture keeps its shape.
     if GetPhysicalScreenSize then photo.w, photo.h = GetPhysicalScreenSize() end
-    -- Which way you faced (radians, 0 = north, turning anticlockwise) and how wide the camera
-    -- sees, for the view cone on the card's map. The camera itself can't be read, so this is
-    -- your character's facing: the same as the camera's unless you'd swung it round.
+    -- Your facing (radians, 0 = north, anticlockwise) and the camera's width, for the card's view
+    -- cone: the camera can't be read, so it's your character's facing, the camera's unless swung round.
     local facing = GetPlayerFacing and GetPlayerFacing()
     if type(facing) == "number" and not issecret(facing) then photo.facing = facing end
     local ok, fov = pcall(GetCVar, "cameraFov")
@@ -96,7 +92,7 @@ local function Record()
     local day = ns.Day()
     day.photos = day.photos or {}
     table.insert(day.photos, photo)
-    ns.Log("photo", { photoT = t, place = photo.place, zone = photo.zone })
+    ns.Log("photo", { photoT = now, place = photo.place, zone = photo.zone })
     if fromBook then
         ns.Print(ns.db.settings.photosShow and L["Picture taken for today's page; /reload to see it in the book."]
             or L["Picture taken for today's page."])
@@ -118,11 +114,8 @@ end)
 -- Finding the picture
 ------------------------------------------------------------------------------
 
--- The game only loads files from Interface\AddOns, so "Set up pictures.bat" (once) makes
--- Interface\AddOns\CaptainsLogShots a junction to the Screenshots folder: a folder of its own
--- with no .toc, so no addon update ever replaces it. Through it the game loads screenshots
--- directly, the moment they're taken. It can't tell a missing file from a real one, though,
--- so pictures are only shown once you've said the link is set up.
+-- The game loads files only from Interface\AddOns, where "Set up pictures.bat" links CaptainsLogShots to
+-- the Screenshots folder; a missing file can't be told from a real one, so pictures wait for that setting.
 local SHOTS = "Interface\\AddOns\\CaptainsLogShots\\"
 
 -- The game only notices new files when the interface loads, so a picture taken since then
@@ -143,34 +136,35 @@ function ns.PhotoAspect(photo)
     return 16 / 9
 end
 
--- Screenshots the book has no card for, listed by "Set up pictures.bat" (Shots.lua), become
--- cards on their day: just the picture and its time, as nothing else was recorded. Only days
--- already in the journal, and never a picture you removed.
+-- A screenshot's day and time, from its file name.
 local function ShotTime(file)
-    local mo, d, y, h, mi, s = file:match("^WoWScrnShot_(%d%d)(%d%d)(%d%d)_(%d%d)(%d%d)(%d%d)%.")
-    if not mo then return end
-    local t = time({ year = 2000 + tonumber(y), month = tonumber(mo), day = tonumber(d),
-        hour = tonumber(h), min = tonumber(mi), sec = tonumber(s) })
-    return ("20%s-%s-%s"):format(y, mo, d), t
+    local month, day, year, hour, minute, second =
+        file:match("^WoWScrnShot_(%d%d)(%d%d)(%d%d)_(%d%d)(%d%d)(%d%d)%.")
+    if not month then return end
+    local when = time({ year = 2000 + tonumber(year), month = tonumber(month), day = tonumber(day),
+        hour = tonumber(hour), min = tonumber(minute), sec = tonumber(second) })
+    return ("20%s-%s-%s"):format(year, month, day), when
 end
 
+-- Screenshots with no card (listed by "Set up pictures.bat" in Shots.lua) become bare cards on their
+-- day: only days already in the journal, and never a picture you removed.
 function ns.ImportShots()
     local list = CaptainsLogShotList
     if type(list) ~= "table" or #list == 0 then return end
     local known = {}
     for _, day in pairs(ns.db.days) do
-        for _, p in ipairs(day.photos or {}) do
-            if p.file then known[p.file] = true end
+        for _, photo in ipairs(day.photos or {}) do
+            if photo.file then known[photo.file] = true end
         end
     end
     local removed, added, touched = ns.db.photoRemoved, 0, {}
     for _, file in ipairs(list) do
         if type(file) == "string" and not known[file] and not removed[file] then
-            local key, t = ShotTime(file)
+            local key, when = ShotTime(file)
             local day = key and ns.db.days[key]
             if day then
                 day.photos = day.photos or {}
-                table.insert(day.photos, { t = t, file = file, imported = true })
+                table.insert(day.photos, { t = when, file = file, imported = true })
                 known[file] = true
                 touched[day] = true
                 added = added + 1
@@ -178,10 +172,12 @@ function ns.ImportShots()
         end
     end
     for day in pairs(touched) do
-        table.sort(day.photos, function(a, b) return a.t < b.t end)
+        table.sort(day.photos, function(first, second) return first.t < second.t end)
     end
     if added > 0 then
-        ns.Print((added == 1 and L["Added %d screenshot from your Screenshots folder to the journal."] or L["Added %d screenshots from your Screenshots folder to the journal."]):format(added))
+        local template = added == 1 and L["Added %d screenshot from your Screenshots folder to the journal."]
+            or L["Added %d screenshots from your Screenshots folder to the journal."]
+        ns.Print(template:format(added))
     end
 end
 ns.On("PLAYER_LOGIN", function() ns.ImportShots() end)
@@ -190,18 +186,18 @@ ns.On("PLAYER_LOGIN", function() ns.ImportShots() end)
 function ns.AllPhotos(zone)
     local list = {}
     for key, day in pairs(ns.db.days) do
-        for i, p in ipairs(day.photos or {}) do
-            if not zone or p.zone == zone then list[#list + 1] = { day = key, index = i, photo = p } end
+        for i, photo in ipairs(day.photos or {}) do
+            if not zone or photo.zone == zone then list[#list + 1] = { day = key, index = i, photo = photo } end
         end
     end
-    table.sort(list, function(a, b) return a.photo.t < b.photo.t end)
+    table.sort(list, function(first, second) return first.photo.t < second.photo.t end)
     return list
 end
 
-function ns.FindPhoto(t)
+function ns.FindPhoto(when)
     for key, day in pairs(ns.db.days) do
-        for i, p in ipairs(day.photos or {}) do
-            if p.t == t then return p, key, i end
+        for i, photo in ipairs(day.photos or {}) do
+            if photo.t == when then return photo, key, i end
         end
     end
 end

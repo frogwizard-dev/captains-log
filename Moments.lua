@@ -1,93 +1,70 @@
 local _, ns = ...
 local issecret = ns.issecret
 
--- The smaller moments of a day, for the journey map: every kill, each fight, each experience
--- gain (kept compactly, as strings like the path), and log entries for gathering, travel (flights,
--- hearthstone, boats and zeppelins, your first mount), close calls, inns, vendors, trainers and
--- mailboxes, and rested experience running out.
---
--- Compact stores, per day, each a string of ";"-separated tokens of ","-separated fields, with
--- times in seconds from the day's start (ns.Moments.Base):
---   day.kl  kills:       "sec,pi,py,px,ref"        ref = npcID, or "n" .. name
---   day.fl  fights:      "sec0,sec1,low,name"      low = lowest health % ("" if unknown)
---   day.xl  experience:  "sec,amount,src,pi,py,px" src = k (kill), q (quest), e (exploring), o (other)
--- Positions are empty where they're hidden. Read them with ns.Moments.Read.
+-- The smaller moments of a day, for the journey map: every kill, fight and experience gain (kept as
+-- compact strings, like the path), and log entries for gathering, travel (flights, hearthstone,
+-- boats and zeppelins, your first mount), close calls, inns, vendors, trainers and mailboxes, and
+-- rested experience running out.
 
-local M = {}
-ns.Moments = M
+local Moments = {}
+ns.Moments = Moments
 
 local MAX_CHARS = 40000 -- per store per day; past this a day stops adding to it
 
-local function Pass(ok, ...)
-    if ok then return ... end
-end
-local function Call(fn, ...)
-    if not fn then return end
-    return Pass(pcall(fn, ...))
-end
-local function Num(v)
-    if issecret(v) or type(v) ~= "number" then return nil end
-    return v
-end
-local function Str(v)
-    if issecret(v) or type(v) ~= "string" or v == "" then return nil end
-    return v
-end
-local function Truthy(fn, ...)
-    local v = Call(fn, ...)
-    if issecret(v) then return false end
-    return v and true or false
-end
-local function Clean(s) return (s:gsub("[,;]", " ")) end
+local Call, Num, Str, Truthy = ns.Call, ns.PlainNumber, ns.PlainText, ns.Truthy
 
-function M.Base(key)
+-- A name with the stores' separators taken out.
+local function NoSeparators(text) return (text:gsub("[,;]", " ")) end
+
+function Moments.Base(key)
     return ns.DayTime(key) - 43200
 end
 
+-- day.kl kills "sec,pi,py,px,ref" (ref = npcID or "n" .. name), day.fl fights "sec0,sec1,low%,name", day.xl
+-- experience "sec,amount,source,pi,py,px" (k, q, e, o); sec from Moments.Base, positions empty if hidden.
 local function Add(field, ...)
     local day = ns.Day()
-    local s = day[field]
-    if s and #s > MAX_CHARS then return end
+    local store = day[field]
+    if store and #store > MAX_CHARS then return end
     local parts = { ... }
     for i = 1, select("#", ...) do
-        local v = parts[i]
-        parts[i] = v == nil and "" or tostring(v)
+        local value = parts[i]
+        parts[i] = value == nil and "" or tostring(value)
     end
-    local tok = table.concat(parts, ",", 1, select("#", ...))
-    day[field] = s and (s .. ";" .. tok) or tok
+    local token = table.concat(parts, ",", 1, select("#", ...))
+    day[field] = store and (store .. ";" .. token) or token
 end
 
 local function Here()
-    if not (ns.Journey and ns.Journey.Here) then return end
     return ns.Journey.Here(true)
 end
 
 -- A day's store as a list of field lists (strings; times turned back into epochs on field 1, and
 -- 2 for fights). `key` is the day's "YYYY-MM-DD".
-function M.Read(key, field)
+function Moments.Read(key, field)
     local day = ns.db.days[key]
-    local s = day and day[field]
-    local out = {}
-    if type(s) ~= "string" or s == "" then return out end
-    local base = M.Base(key)
-    for tok in s:gmatch("[^;]+") do
-        local f = {}
-        for v in (tok .. ","):gmatch("([^,]*),") do f[#f + 1] = v end
-        f[1] = (tonumber(f[1]) or 0) + base
-        if field == "fl" then f[2] = (tonumber(f[2]) or 0) + base end
-        out[#out + 1] = f
+    local store = day and day[field]
+    local entries = {}
+    if type(store) ~= "string" or store == "" then return entries end
+    local base = Moments.Base(key)
+    for token in store:gmatch("[^;]+") do
+        local fields = {}
+        for value in (token .. ","):gmatch("([^,]*),") do fields[#fields + 1] = value end
+        fields[1] = (tonumber(fields[1]) or 0) + base
+        if field == "fl" then fields[2] = (tonumber(fields[2]) or 0) + base end
+        entries[#entries + 1] = fields
     end
-    return out
+    return entries
 end
 
 ------------------------------------------------------------------------------
 -- Every kill (Tracker.lua calls this for each kill it counts)
 ------------------------------------------------------------------------------
 
-function M.Kill(id, name)
-    local inst, n, w = Here()
-    local ref = type(id) == "number" and id or (name and ("n" .. Clean(name))) or ""
-    Add("kl", time() - M.Base(ns.Today()), inst, n, w, ref)
+function Moments.Kill(id, name)
+    local instance, north, west = Here()
+    local ref = type(id) == "number" and id or (name and ("n" .. NoSeparators(name))) or ""
+    Add("kl", time() - Moments.Base(ns.Today()), instance, north, west, ref)
 end
 
 ------------------------------------------------------------------------------
@@ -96,40 +73,40 @@ end
 
 local hints = {} -- { src, at }
 
-function M.XPSource(src)
-    hints[#hints + 1] = { src = src, at = GetTime() }
+function Moments.XPSource(source)
+    hints[#hints + 1] = { src = source, at = GetTime() }
     if #hints > 8 then table.remove(hints, 1) end
 end
 
-function M.XP(gain)
+function Moments.XP(gain)
     if type(gain) ~= "number" or gain <= 0 then return end
-    local at, t = GetTime(), time()
-    local inst, n, w = Here()
+    local at, now = GetTime(), time()
+    local instance, north, west = Here()
     -- The chat line naming the source can come just before or just after the gain.
     C_Timer.After(0.5, function()
-        local src = "o"
+        local source = "o"
         for i = #hints, 1, -1 do
             if math.abs(hints[i].at - at) <= 2 then
-                src = hints[i].src
+                source = hints[i].src
                 table.remove(hints, i)
                 break
             end
         end
-        Add("xl", t - M.Base(ns.Today()), gain, src, inst, n, w)
+        Add("xl", now - Moments.Base(ns.Today()), gain, source, instance, north, west)
     end)
 end
 
 -- Rested experience running out.
 local lastRested
 local function CheckRested()
-    local ex = Call(GetXPExhaustion)
-    if issecret(ex) then return end
+    local rested = Call(GetXPExhaustion)
+    if issecret(rested) then return end
     local maxLevel = (GetMaxPlayerLevel and Call(GetMaxPlayerLevel)) or 60
-    local lvl = Num(UnitLevel("player")) or 0
-    if lastRested and lastRested > 0 and not ex and lvl < maxLevel then
+    local level = Num(UnitLevel("player")) or 0
+    if lastRested and lastRested > 0 and not rested and level < maxLevel then
         ns.Log("restedgone", {})
     end
-    lastRested = ex or 0
+    lastRested = rested or 0
 end
 ns.On("PLAYER_XP_UPDATE", function() pcall(CheckRested) end)
 ns.On("UPDATE_EXHAUSTION", function() pcall(CheckRested) end)
@@ -144,38 +121,38 @@ local lastGather   -- { what, at }
 local lastCastAt = 0
 
 local function SpellName(id)
-    local n = Call(C_Spell and C_Spell.GetSpellName, id)
-    if not Str(n) then n = Call(GetSpellInfo, id) end
-    return Str(n)
+    local name = Call(C_Spell and C_Spell.GetSpellName, id)
+    if not Str(name) then name = Call(GetSpellInfo, id) end
+    return Str(name)
 end
 
 local function GatherKind(spellID)
     if not gatherNames then
         gatherNames = {}
         for what, id in pairs(GATHER_SPELLS) do
-            local n = SpellName(id)
-            if n then gatherNames[n] = what end
+            local name = SpellName(id)
+            if name then gatherNames[name] = what end
         end
     end
-    local n = SpellName(spellID)
-    return n and gatherNames[n]
+    local name = SpellName(spellID)
+    return name and gatherNames[name]
 end
 
 -- Several of the same thing in a row share one line.
 local GATHER_TALLY = { herb = "herbs", ore = "ore", skin = "skins" }
-local function LogGather(what, id, n)
+local function LogGather(what, id, count)
     if GATHER_TALLY[what] and ns.Count then ns.Count(GATHER_TALLY[what]) end
     local events = ns.Day().events
     for i = #events, math.max(1, #events - 10), -1 do
-        local e = events[i]
-        if e.k == "gather" and e.id == id and e.what == what and time() - (e.last or e.t) < 120 then
-            e.n = e.n + n
-            e.last = time()
+        local line = events[i]
+        if line.k == "gather" and line.id == id and line.what == what and time() - (line.last or line.t) < 120 then
+            line.n = line.n + count
+            line.last = time()
             ns.Refresh()
             return
         end
     end
-    ns.Log("gather", { what = what, id = id, n = n })
+    ns.Log("gather", { what = what, id = id, n = count })
 end
 
 local gatherReadAt
@@ -240,17 +217,16 @@ end)
 
 -- Boats and zeppelins: crossing to another continent without a flight, a hearthstone, a spell
 -- cast just before (a portal or teleport) or dying. A best guess: a summons looks the same.
-local lastInst, lastInstAt, lastZone
-local lastPlace
+local lastInstance, lastInstanceAt, lastZone
 
-local function CheckTransport(inst)
+local function CheckTransport(instance)
     local now = GetTime()
-    if inst then
-        if lastInst and inst ~= lastInst and now - lastInstAt < 180 and now - lastHearth > 90
+    if instance then
+        if lastInstance and instance ~= lastInstance and now - lastInstanceAt < 180 and now - lastHearth > 90
             and now - lastCastAt > 25 and not taxiStart and not Truthy(UnitIsDeadOrGhost, "player") then
             ns.Log("transport", { from = lastZone, to = ns.Zone() })
         end
-        lastInst, lastInstAt, lastZone = inst, now, ns.Zone() or lastZone
+        lastInstance, lastInstanceAt, lastZone = instance, now, ns.Zone() or lastZone
     end
 end
 
@@ -269,9 +245,9 @@ local function CheckTaxi()
         taxiStart = { t = time(), from = plan.from or ns.Zone(), to = plan.to }
         taxiPlan = nil
     elseif not onTaxi and taxiStart then
-        local s = taxiStart
+        local flight = taxiStart
         taxiStart = nil
-        ns.Log("taxi", { from = s.from, to = s.to or ns.Zone(), s = time() - s.t })
+        ns.Log("taxi", { from = flight.from, to = flight.to or ns.Zone(), s = time() - flight.t })
     end
 end
 
@@ -283,17 +259,18 @@ local fight -- { t0, name, low }
 
 local function SampleHealth()
     if not fight then return end
-    local hp, max = UnitHealth("player"), UnitHealthMax("player")
-    if issecret(hp) or issecret(max) or type(hp) ~= "number" or type(max) ~= "number" or max <= 0 then return end
-    local pct = math.floor(hp / max * 100 + 0.5)
-    if not fight.low or pct < fight.low then fight.low = pct end
+    local health, maxHealth = UnitHealth("player"), UnitHealthMax("player")
+    if issecret(health) or issecret(maxHealth) or type(health) ~= "number" or type(maxHealth) ~= "number"
+        or maxHealth <= 0 then return end
+    local percent = math.floor(health / maxHealth * 100 + 0.5)
+    if not fight.low or percent < fight.low then fight.low = percent end
 end
 
 ns.On("PLAYER_REGEN_DISABLED", function()
     local name
     if UnitExists("target") then
-        local can = UnitCanAttack("player", "target")
-        if not issecret(can) and can then name = Str(UnitName("target")) end
+        local attackable = UnitCanAttack("player", "target")
+        if not issecret(attackable) and attackable then name = Str(UnitName("target")) end
     end
     fight = { t0 = time(), name = name }
     pcall(SampleHealth)
@@ -306,12 +283,12 @@ end)
 ns.On("PLAYER_REGEN_ENABLED", function()
     if not fight then return end
     pcall(SampleHealth)
-    local f = fight
+    local ended = fight
     fight = nil
-    local base = M.Base(ns.Today())
-    Add("fl", f.t0 - base, time() - base, f.low, f.name and Clean(f.name) or nil)
-    if f.low and f.low < 20 and not Truthy(UnitIsDeadOrGhost, "player") then
-        ns.Log("closecall", { pct = f.low, vs = f.name })
+    local base = Moments.Base(ns.Today())
+    Add("fl", ended.t0 - base, time() - base, ended.low, ended.name and NoSeparators(ended.name) or nil)
+    if ended.low and ended.low < 20 and not Truthy(UnitIsDeadOrGhost, "player") then
+        ns.Log("closecall", { pct = ended.low, vs = ended.name })
     end
 end)
 
@@ -327,8 +304,8 @@ local function Once(day, key)
 end
 
 local function Place()
-    local sub = GetSubZoneText and Str(GetSubZoneText())
-    return sub or ns.Zone()
+    local subzone = GetSubZoneText and Str(GetSubZoneText())
+    return subzone or ns.Zone()
 end
 
 ns.On("PLAYER_UPDATE_RESTING", function()
@@ -360,8 +337,7 @@ local function Tick()
     pcall(CheckTaxi)
     pcall(CheckMount)
     pcall(SampleHealth)
-    local inst = Here()
-    pcall(CheckTransport, inst)
+    pcall(CheckTransport, (Here()))
 end
 
 ns.On("PLAYER_LOGIN", function()

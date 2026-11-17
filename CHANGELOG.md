@@ -1,12 +1,17 @@
 # Captain's Log
 
+## 0.9.3
+
+- A Forever update hides from add-ons how hard each hit lands, so the bestiary can't learn how hard a creature hits any more ("Melee hits for 45-60"). Creatures you'd already fought keep theirs, and new ones still get how often they swing. If the game shows hit sizes again, the log picks them up again by itself.
+- "Against melee it dodges ... (of N swings)" counts every swing again: since the update, two of your hits on a creature at the same moment were counted as one.
+
 ## 0.9.2
 
 - Your journey now plays in **a Journey window of its own** instead of on the world map, so the world map is left alone (no more blocked quest pins in combat). Move it and resize it as you like; it remembers where you put it, and Escape closes it.
 - The window draws the zone maps itself: scroll to zoom, drag to look around. While it plays, the camera follows you smoothly from zone to zone. Drag the map to look away, and click "Follow" to pick you back up. "Zone / Continent" switches to the whole continent.
 - **A log runs down the window's left side** under your portrait: everything that has happened so far in the playback, with the time, newest at the bottom. It keeps up as you play and doesn't jump back down while you're scrolled up reading. Hover a line for the full entry; click it to jump there. Turn it off with "Log down the side" in the Show menu to give the map the whole window. (It replaces the notes that faded away.)
 - Open it with "Play your journey" on the Character page or a day in the Log, with `/log journey play`, or with the little book button on the world map.
-- The journey map's portrait changes with **every piece of gear you put on or take off**, not just upgrades and each level's snapshot (from now on; days before keep the upgrades they logged).
+- The journey map's portrait changes with **every piece of gear you put on or take off**, not only upgrades and each level's snapshot (from now on; days before keep the upgrades they logged).
 - The portrait is bigger.
 - Big maps with sharper art for close up switch to it as you zoom in.
 
@@ -33,22 +38,22 @@
 - **You on the journey map**: a portrait of your character in the map's corner while it plays, in the gear you had on at that moment (your level's snapshot plus each upgrade since), with your level under it. Passing a level up plays the level-up sound and a golden burst around you, and changes into the new gear. Can be hidden in the Show menu.
 - The journey map **follows you from map to map** as it plays or as you scrub: from Zephras Isle to Mulgore to the Barrens, it brings up the zone you were in at that moment (a map that already shows it, like a whole continent, stays). It can be turned off in the Show menu.
 - Each level's page on the Character page shows **you as you were**: a model of your character in the gear you had on then (drag it to turn it round).
-- Names on Forever include the surname: "Feral Streep", not just "Feral".
+- Names on Forever include the surname: "Feral Streep", not only "Feral".
 - **Choose what the journey map shows**: the Show button on its bar lists your route and each kind of entry (quests, loot and gear, kills, deaths, levels and milestones, places, people, fishing, pictures). Tick as much or as little as you like; the time bar's marks follow, and your choice is kept.
 
 ## 0.8.0
 
-- **Character page** — a new page in the book about you: time played, how long you've been at this level and how long a level takes you on average, and every level you've reached with the date, how long it took and where. Click a level to see yourself as you were then: your gear, stats, health and mana, armour, talents, skills, coin and rested experience (snapshots are taken from now on, as you level).
+- **Character page**: a new page in the book about you: time played, how long you've been at this level and how long a level takes you on average, and every level you've reached with the date, how long it took and where. Click a level to see yourself as you were then: your gear, stats, health and mana, armour, talents, skills, coin and rested experience (snapshots are taken from now on, as you level).
 - On the Character page too: **where your time goes** (fighting, flying, resting, away, in a group...) for all time, today and this level; **how far you've travelled** on foot, mounted, swimming, by flight and as a ghost; and **your characters** across the account, with their level, time played, coin and when you last saw them.
-- **Ledger** — a new page for your coin: what it came from (selling, loot, quests, the auction house, mail, trades) and what it went on (buying, repairs, training, flights, postage...), for all time, the last seven days and each day, with what you came out ahead or behind. It also keeps your lifetime tallies (kills, quests, deaths, items looted and made, fish, flights, hearthstones, dungeons, bosses, duels) and where your experience came from.
-- **Journey map with a time bar** — your route each day is written down, and the book plays it back on the world map. Open it from the new button on the map, from a day's timeline, or from the Character page. Pick a day (or all days), press Play, and choose a speed; or click and drag along the time bar to go back and forth through the day. Your route so far is drawn, a marker shows where you were, and things from the log (quests, kills, deaths, levels, pictures, firsts...) pop up where they happened; hover one to read its line. "Whole route" shows the full day at once.
+- **Ledger**: a new page for your coin: what it came from (selling, loot, quests, the auction house, mail, trades) and what it went on (buying, repairs, training, flights, postage...), for all time, the last seven days and each day, with what you came out ahead or behind. It also keeps your lifetime tallies (kills, quests, deaths, items looted and made, fish, flights, hearthstones, dungeons, bosses, duels) and where your experience came from.
+- **Journey map with a time bar**: your route each day is written down, and the book plays it back on the world map. Open it from the new button on the map, from a day's timeline, or from the Character page. Pick a day (or all days), press Play, and choose a speed; or click and drag along the time bar to go back and forth through the day. Your route so far is drawn, a marker shows where you were, and things from the log (quests, kills, deaths, levels, pictures, firsts...) pop up where they happened; hover one to read its line. "Whole route" shows the full day at once.
 - New timeline entries: upgrades you put on, spells learned, reputation steps ("Now Honored with Stormwind"), profession steps, joining or leaving a guild, duels won and lost, the first of each good item you find, and milestones (your 100th quest, your 1,000th kill...). The level line now says how long you'd played and how long the last level took, with a link to how you looked then.
 - Settings: keep detailed routes for a number of days (older days keep a simpler line, so the saved file stays small), and hide the journey map's button if you don't want it.
 - Asking the game for your time played no longer prints it to chat (your own /played still does).
 
 ## 0.7.0
 
-- **简体中文** — Captain's Log can now show in other languages, and starts with Simplified Chinese (used automatically on a Chinese game client). It's a first pass: corrections from native players are very welcome.
+- **简体中文**: Captain's Log can now show in other languages, and starts with Simplified Chinese (used automatically on a Chinese game client). It's a first pass: corrections from native players are very welcome.
 - Names and words the game gives (zones, creatures, items) were already in your language; this covers the addon's own text.
 - Known gap on non-English clients: other players' pets and totems may slip into People, since spotting them reads English tooltip text.
 - Options > AddOns with the gamepad interface: the Frog Wizard pages no longer upset the game's gamepad navigation (which could bring up errors on opening the settings). From FrogLib 1.5.0.
@@ -65,7 +70,7 @@
 
 ### Fixes
 - A dungeon run's "Creatures slain inside" no longer lists creatures as "Unknown creature #n:..." or twice. Inside dungeons the game hides which creature was killed, so some kills are counted by name; those now join the creature's own entry once the log knows it (runs already saved are fixed at login), and show their proper name until then.
-- Writing down people, creatures, quests, places and dungeon groups no longer stops with an error where the game hides a name, a level, a map position, a quest's rewards or whether a unit is a player (some instances): the hidden detail is just left out.
+- Writing down people, creatures, quests, places and dungeon groups no longer stops with an error where the game hides a name, a level, a map position, a quest's rewards or whether a unit is a player (some instances): the hidden detail is left out.
 - A dungeon group member whose class the game hides is saved without it, instead of breaking the run's record.
 
 ### Under the hood

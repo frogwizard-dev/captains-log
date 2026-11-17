@@ -11,11 +11,11 @@ local RETURN_WINDOW = 1800
 local INSTANCE_TYPES = { party = true, raid = true, scenario = true }
 
 local function Current()
-    local i = ns.db.activeRun
-    return i and ns.db.runs[i]
+    local index = ns.db.activeRun
+    return index and ns.db.runs[index]
 end
 
--- Only while you're actually inside it.
+-- Only while you're inside it.
 function ns.ActiveRun()
     local run = Current()
     if run and not run.leftAt then return run end
@@ -26,13 +26,18 @@ local function Finish(run)
     ns.db.activeRun = nil
 end
 
+-- Left longer ago than a corpse run or a trip out to repair: over.
+local function Expired(run)
+    return run and run.leftAt and time() - run.leftAt >= RETURN_WINDOW
+end
+
 -- The Encounter Journal's ID for the instance you're in, if it knows it.
 local function JournalID()
     if not EJ_GetInstanceForMap then return nil end
     local ok, mapID = pcall(C_Map.GetBestMapForUnit, "player")
     if not ok or issecret(mapID) or not mapID then return nil end
-    local ok2, journalID = pcall(EJ_GetInstanceForMap, mapID)
-    if not ok2 or not journalID or journalID == 0 then return nil end
+    local okJournal, journalID = pcall(EJ_GetInstanceForMap, mapID)
+    if not okJournal or not journalID or journalID == 0 then return nil end
     return journalID
 end
 
@@ -91,13 +96,13 @@ end
 
 local function OnZone()
     local run = Current()
-    if run and run.leftAt and time() - run.leftAt >= RETURN_WINDOW then
+    if Expired(run) then
         Finish(run)
         run = nil
     end
 
-    local name, itype, _, difficulty, maxPlayers, _, _, instanceID = GetInstanceInfo()
-    if not issecret(itype) and INSTANCE_TYPES[itype] and not issecret(name) and name then
+    local name, instanceType, _, difficulty, maxPlayers, _, _, instanceID = GetInstanceInfo()
+    if not issecret(instanceType) and INSTANCE_TYPES[instanceType] and not issecret(name) and name then
         if run and run.instanceID == instanceID then
             if run.leftAt then
                 run.leftAt = nil
@@ -106,7 +111,7 @@ local function OnZone()
         else
             if run then Finish(run) end
             run = {
-                name = name, instanceID = instanceID, difficulty = difficulty, type = itype, size = maxPlayers,
+                name = name, instanceID = instanceID, difficulty = difficulty, type = instanceType, size = maxPlayers,
                 start = time(), level = UnitLevel("player"), group = {}, bosses = {}, wipes = 0, wipesOn = {},
                 deaths = 0, kills = 0, loot = {}, mobs = {}, xp = 0, money = 0,
             }
@@ -163,11 +168,11 @@ ns.On("ENCOUNTER_END", function(encounterID, encounterName, _, _, success)
     ns.Refresh()
 end)
 
--- Wraps up a run you left long ago (e.g. logged out after a dungeon, back the next day).
+-- Wraps up a run you left long ago (logged out after a dungeon, back the next day).
 ns.On("PLAYER_LOGIN", function()
     C_Timer.NewTicker(60, function()
         local run = Current()
-        if run and run.leftAt and time() - run.leftAt >= RETURN_WINDOW then
+        if Expired(run) then
             Finish(run)
             ns.Refresh()
         end

@@ -1,28 +1,10 @@
 local _, ns = ...
 local L = ns.L
-local issecret = ns.issecret
 
 -- Time played, a snapshot of the character at each level (gear, stats, talents, skills), and the
 -- account-wide roster of your characters (CaptainsLogAccount).
 
-local function Num(v)
-    if issecret(v) or type(v) ~= "number" then return nil end
-    return v
-end
-
-local function Str(v)
-    if issecret(v) or type(v) ~= "string" or v == "" then return nil end
-    return v
-end
-
-local function Pass(ok, ...)
-    if ok then return ... end
-end
-
-local function Call(fn, ...)
-    if not fn then return end
-    return Pass(pcall(fn, ...))
-end
+local Num, Str, Call = ns.PlainNumber, ns.PlainText, ns.Call
 
 ------------------------------------------------------------------------------
 -- Roster
@@ -35,18 +17,18 @@ local function UpdateRoster()
     local name, realm = Str(Call(UnitName, "player")), Str(Call(GetRealmName))
     if not name or not realm then return end
     local key = realm .. "-" .. name
-    local r = roster[key] or {}
-    roster[key] = r
+    local character = roster[key] or {}
+    roster[key] = character
     local _, class = Call(UnitClass, "player")
     local _, race = Call(UnitRace, "player")
-    r.name = ns.FullName("player") or r.name -- with the surname, on Forever
-    r.class = Str(class) or r.class
-    r.race = Str(race) or r.race
-    r.level = Num(Call(UnitLevel, "player")) or r.level
-    r.played = ns.db.played and ns.db.played.total or r.played
-    r.money = Num(Call(GetMoney)) or r.money
-    r.zone = ns.Zone() or r.zone
-    r.last = time()
+    character.name = ns.FullName("player") or character.name -- with the surname, on Forever
+    character.class = Str(class) or character.class
+    character.race = Str(race) or character.race
+    character.level = Num(Call(UnitLevel, "player")) or character.level
+    character.played = ns.db.played and ns.db.played.total or character.played
+    character.money = Num(Call(GetMoney)) or character.money
+    character.zone = ns.Zone() or character.zone
+    character.last = time()
 end
 ns.UpdateRoster = UpdateRoster
 
@@ -58,7 +40,7 @@ ns.UpdateRoster = UpdateRoster
 -- listening for the one reply. The player's own /played prints as usual.
 local muted = {}
 local function Unmute()
-    for cf in pairs(muted) do pcall(cf.RegisterEvent, cf, "TIME_PLAYED_MSG") end
+    for chatFrame in pairs(muted) do pcall(chatFrame.RegisterEvent, chatFrame, "TIME_PLAYED_MSG") end
     wipe(muted)
 end
 
@@ -67,10 +49,10 @@ local function RequestPlayed()
     if not RequestTimePlayed or GetTime() - lastAsk < 10 then return end
     lastAsk = GetTime()
     for i = 1, (NUM_CHAT_WINDOWS or 10) do
-        local cf = _G["ChatFrame" .. i]
-        if cf and cf.IsEventRegistered and cf:IsEventRegistered("TIME_PLAYED_MSG") then
-            cf:UnregisterEvent("TIME_PLAYED_MSG")
-            muted[cf] = true
+        local chatFrame = _G["ChatFrame" .. i]
+        if chatFrame and chatFrame.IsEventRegistered and chatFrame:IsEventRegistered("TIME_PLAYED_MSG") then
+            chatFrame:UnregisterEvent("TIME_PLAYED_MSG")
+            muted[chatFrame] = true
         end
     end
     if not pcall(RequestTimePlayed) then Unmute() return end
@@ -85,16 +67,16 @@ ns.On("TIME_PLAYED_MSG", function(total, thisLevel)
     total, thisLevel = Num(total), Num(thisLevel)
     if not total then return end
     ns.db.played = { total = total, level = thisLevel, at = time() }
-    local lvl = Num(UnitLevel("player"))
-    if dingLevel and (not lvl or dingLevel > lvl) then lvl = dingLevel end
+    local level = Num(UnitLevel("player"))
+    if dingLevel and (not level or dingLevel > level) then level = dingLevel end
     dingLevel = nil
-    if lvl and thisLevel then
-        local rec = ns.Sub(ns.db.levels, lvl)
+    if level and thisLevel then
+        local record = ns.Sub(ns.db.levels, level)
         -- The total when this level was reached; kept from the first reading.
-        rec.played = rec.played or (total - thisLevel)
-        local prev = ns.db.levels[lvl - 1]
-        if prev and prev.played and not prev.spent and rec.played >= prev.played then
-            prev.spent = rec.played - prev.played
+        record.played = record.played or (total - thisLevel)
+        local previous = ns.db.levels[level - 1]
+        if previous and previous.played and not previous.spent and record.played >= previous.played then
+            previous.spent = record.played - previous.played
         end
     end
     UpdateRoster()
@@ -106,64 +88,63 @@ end)
 ------------------------------------------------------------------------------
 
 local function Gear()
-    local gear, ench = {}, {}
+    local gear, enchants = {}, {}
     for slot = 1, 19 do
         local link = Str(Call(GetInventoryItemLink, "player", slot))
-        local id, e = link and link:match("item:(%d+):(%d*)")
+        local id, enchant = link and link:match("item:(%d+):(%d*)")
         if id then
             gear[slot] = tonumber(id)
-            e = tonumber(e)
-            if e and e > 0 then ench[slot] = e end
+            enchant = tonumber(enchant)
+            if enchant and enchant > 0 then enchants[slot] = enchant end
         end
     end
-    return gear, ench
+    return gear, enchants
 end
 
 -- Talent tabs: { {name, points}, ... } and per-tab rank strings joined by "-" ("0532-00-1").
 -- Nil while the talents haven't loaded.
 local function Talents()
-    local tabs = Num(Call(GetNumTalentTabs))
-    if not tabs or tabs == 0 or not GetTalentTabInfo then return end
-    local out, ranks = {}, {}
-    for tab = 1, tabs do
-        local r = { pcall(GetTalentTabInfo, tab) }
-        if not r[1] then return end
+    local tabCount = Num(Call(GetNumTalentTabs))
+    if not tabCount or tabCount == 0 or not GetTalentTabInfo then return end
+    local tabs, ranks = {}, {}
+    for tab = 1, tabCount do
+        local returned = { pcall(GetTalentTabInfo, tab) }
+        if not returned[1] then return end
         local name, points
-        if type(r[2]) == "number" then -- id, name, description, icon, pointsSpent, ...
-            name, points = Str(r[3]), Num(r[6])
-        else                           -- name, icon, pointsSpent, ...
-            name, points = Str(r[2]), Num(r[4])
+        if type(returned[2]) == "number" then -- id, name, description, icon, pointsSpent, ...
+            name, points = Str(returned[3]), Num(returned[6])
+        else                                  -- name, icon, pointsSpent, ...
+            name, points = Str(returned[2]), Num(returned[4])
         end
-        out[tab] = { name = name, points = points or 0 }
-        local n = Num(Call(GetNumTalents, tab)) or 0
-        if n == 0 then return end
-        local s = {}
-        for i = 1, n do
+        tabs[tab] = { name = name, points = points or 0 }
+        local talentCount = Num(Call(GetNumTalents, tab)) or 0
+        if talentCount == 0 then return end
+        local digits = {}
+        for i = 1, talentCount do
             local _, _, _, _, rank = Call(GetTalentInfo, tab, i)
             rank = Num(rank) or 0
-            s[i] = rank < 10 and tostring(rank) or "9"
+            digits[i] = rank < 10 and tostring(rank) or "9"
         end
-        ranks[tab] = table.concat(s)
+        ranks[tab] = table.concat(digits)
     end
-    return out, table.concat(ranks, "-")
+    return tabs, table.concat(ranks, "-")
 end
 
 local function Skills()
     if not (GetNumSkillLines and GetSkillLineInfo) then return end
-    local n = Num(Call(GetNumSkillLines)) or 0
-    local out = {}
-    for i = 1, n do
+    local skills = {}
+    for i = 1, Num(Call(GetNumSkillLines)) or 0 do
         local name, header, _, rank, _, _, maxRank = Call(GetSkillLineInfo, i)
         name, rank = Str(name), Num(rank)
         if name and not header and rank then
-            out[name] = { rank, Num(maxRank) or 0 }
+            skills[name] = { rank, Num(maxRank) or 0 }
         end
     end
-    return out
+    return skills
 end
 
-local function Snapshot(lvl)
-    local snap = { t = time(), level = lvl }
+local function Snapshot(level)
+    local snap = { t = time(), level = level }
     snap.gear, snap.ench = Gear()
     snap.stats = {}
     for i = 1, 5 do
@@ -189,24 +170,24 @@ end
 local function FillTalents(snap, tries)
     if snap.talents or tries <= 0 then return end
     C_Timer.After(5, function()
-        local t, r = Talents()
-        if t then
-            snap.talents, snap.ranks = t, r
+        local tabs, ranks = Talents()
+        if tabs then
+            snap.talents, snap.ranks = tabs, ranks
         else
             FillTalents(snap, tries - 1)
         end
     end)
 end
 
-local function TakeSnapshot(lvl)
-    lvl = lvl or Num(UnitLevel("player"))
-    if not lvl then return end
-    local ok, snap = pcall(Snapshot, lvl)
+local function TakeSnapshot(level)
+    level = level or Num(UnitLevel("player"))
+    if not level then return end
+    local ok, snap = pcall(Snapshot, level)
     if not ok then
         ns.Debug("Snapshot: " .. tostring(snap))
         return
     end
-    ns.Sub(ns.db.levels, lvl).snap = snap
+    ns.Sub(ns.db.levels, level).snap = snap
     FillTalents(snap, 12)
     return snap
 end
@@ -220,8 +201,8 @@ ns.On("PLAYER_LOGIN", function()
     UpdateRoster()
     RequestPlayed()
     C_Timer.After(8, function()
-        for _, rec in pairs(ns.db.levels) do
-            if type(rec) == "table" and rec.snap then return end
+        for _, record in pairs(ns.db.levels) do
+            if type(record) == "table" and record.snap then return end
         end
         TakeSnapshot()
     end)
@@ -246,9 +227,9 @@ ns.On("PLAYER_LEVEL_UP", function(level)
     C_Timer.After(2, function()
         TakeSnapshot(level)
         UpdateRoster()
-        local prev = level and ns.db.levels[level - 1]
-        if prev and prev.spent then
-            ns.Print(L["Level %d took %s of play."]:format(level - 1, ns.Duration(prev.spent)))
+        local previous = level and ns.db.levels[level - 1]
+        if previous and previous.spent then
+            ns.Print(L["Level %d took %s of play."]:format(level - 1, ns.Duration(previous.spent)))
         end
     end)
 end)

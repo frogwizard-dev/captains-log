@@ -2,15 +2,10 @@ local _, ns = ...
 local L = ns.L
 local UI = ns.UI
 
--- Captain's Log on the game's own world map. A Map button "projects" an entry (a quest, a
--- creature, a person, a land) onto it as pins, which stay until you right-click them away.
--- Pinned entries are saved in db.mapLayers as { kind, id } (kinds: questgiver, questfoes, mob,
--- npc, zone, photo, fish, fishspot); their pins are rebuilt from the
--- journal each time the map draws, so they keep up with new kills. Your fishing spots are the
--- one set shown by a setting (Settings > fishing spots) instead of a Map button.
---
--- The world map plumbing follows HereBeDragons-Pins: our own pin pool registered with the map
--- (no XML template needed) and a data provider the map asks for pins whenever it changes.
+-- Captain's Log on the game's world map: a Map button pins an entry (db.mapLayers { kind, id }:
+-- questgiver, questfoes, mob, npc, zone, photo, fish, fishspot), rebuilt from the journal each time
+-- the map draws, until you right-click it away; your fishing spots come from a setting instead. The
+-- plumbing follows HereBeDragons-Pins: our own pin pool and a data provider the map asks for pins.
 
 local TEMPLATE = "CaptainsLogMapPinTemplate"
 local MapPins = {}
@@ -24,153 +19,172 @@ ns.MapPins = MapPins
 local builders = {}
 
 local function NpcName(id)
-    local n = id and ns.db.npcs[id]
-    return n and n.name
+    local npc = id and ns.db.npcs[id]
+    return npc and npc.name
 end
 
-local function AddSpots(pins, m, label)
-    for mapID, spots in pairs(m.spots or {}) do
-        for _, s in ipairs(spots) do pins[#pins + 1] = { mapID, s[1], s[2], "kill", label } end
+local function AddSpots(pins, mob, label)
+    for mapID, spots in pairs(mob.spots or {}) do
+        for _, spot in ipairs(spots) do pins[#pins + 1] = { mapID, spot[1], spot[2], "kill", label } end
     end
 end
 
 -- A quest goes on the map in two separate sets, each from its own Map button: who to see
 -- (giver and hand-in) and what to hunt (its creatures' kill spots).
-local function QuestFoePins(q, pins)
+local function QuestFoePins(quest, pins)
     local seen = {}
-    for i in ipairs(q.objectives or {}) do
-        for _, f in ipairs(ns.ObjectiveFoes(q, i)) do
-            if not seen[f.id] then
-                seen[f.id] = true
-                AddSpots(pins, f.mob, f.item and L["%s, drops %s"]:format(f.mob.name or "?", f.item) or (f.mob.name or "?"))
+    for i in ipairs(quest.objectives or {}) do
+        for _, foe in ipairs(ns.ObjectiveFoes(quest, i)) do
+            if not seen[foe.id] then
+                seen[foe.id] = true
+                local name = foe.mob.name or "?"
+                AddSpots(pins, foe.mob, foe.item and L["%s, drops %s"]:format(name, foe.item) or name)
             end
         end
     end
 end
 
-local function QuestPeoplePins(q, pins)
-    local m, x, y = ns.QuestStart(q)
-    if m then pins[#pins + 1] = { m, x, y, "start", NpcName(q.giver) and L["Quest giver: %s"]:format(NpcName(q.giver)) or L["Quest giver"] } end
-    m, x, y = ns.QuestFinish(q)
-    if m then pins[#pins + 1] = { m, x, y, "finish", NpcName(q.turnInNpc) and L["Handed in to %s"]:format(NpcName(q.turnInNpc)) or L["Handed in"] } end
+local function QuestPeoplePins(quest, pins)
+    local mapID, x, y = ns.QuestStart(quest)
+    if mapID then
+        local giver = NpcName(quest.giver)
+        pins[#pins + 1] = { mapID, x, y, "start", giver and L["Quest giver: %s"]:format(giver) or L["Quest giver"] }
+    end
+    mapID, x, y = ns.QuestFinish(quest)
+    if mapID then
+        local taker = NpcName(quest.turnInNpc)
+        pins[#pins + 1] = { mapID, x, y, "finish", taker and L["Handed in to %s"]:format(taker) or L["Handed in"] }
+    end
 end
 
 builders.questgiver = function(id)
-    local q = ns.db.quests[id]
-    if not q then return end
+    local quest = ns.db.quests[id]
+    if not quest then return end
     local pins = {}
-    QuestPeoplePins(q, pins)
-    return L["%s (quest giver)"]:format(q.title or L["Quest #%s"]:format(id)), "quests", pins
+    QuestPeoplePins(quest, pins)
+    return L["%s (quest giver)"]:format(quest.title or L["Quest #%s"]:format(id)), "quests", pins
 end
 
 builders.questfoes = function(id)
-    local q = ns.db.quests[id]
-    if not q then return end
+    local quest = ns.db.quests[id]
+    if not quest then return end
     local pins = {}
-    QuestFoePins(q, pins)
-    return L["%s (creatures)"]:format(q.title or L["Quest #%s"]:format(id)), "quests", pins
+    QuestFoePins(quest, pins)
+    return L["%s (creatures)"]:format(quest.title or L["Quest #%s"]:format(id)), "quests", pins
 end
 
 -- Both at once: how 0.4.0 pinned quests, kept so those saved pins still show (and remove).
 builders.quest = function(id)
-    local q = ns.db.quests[id]
-    if not q then return end
+    local quest = ns.db.quests[id]
+    if not quest then return end
     local pins = {}
-    QuestFoePins(q, pins)
-    QuestPeoplePins(q, pins)
-    return q.title or L["Quest #%s"]:format(id), "quests", pins
+    QuestFoePins(quest, pins)
+    QuestPeoplePins(quest, pins)
+    return quest.title or L["Quest #%s"]:format(id), "quests", pins
 end
 
 builders.mob = function(id)
-    local m = ns.db.mobs[id]
-    if not m then return end
+    local mob = ns.db.mobs[id]
+    if not mob then return end
     local pins = {}
-    AddSpots(pins, m, m.name or "?")
-    return m.name or L["Unknown creature"], "bestiary", pins
+    AddSpots(pins, mob, mob.name or "?")
+    return mob.name or L["Unknown creature"], "bestiary", pins
+end
+
+local function NpcLabel(npc)
+    return npc.title and L["%s, %s"]:format(npc.name or "?", npc.title) or (npc.name or "?")
 end
 
 builders.npc = function(id)
-    local n = ns.db.npcs[id]
-    if not n or not n.mapID then return end
-    return n.name or L["Someone"], "people",
-        { { n.mapID, n.x, n.y, "npc", n.title and L["%s, %s"]:format(n.name or "?", n.title) or (n.name or "?") } }
+    local npc = ns.db.npcs[id]
+    if not npc or not npc.mapID then return end
+    return npc.name or L["Someone"], "people", { { npc.mapID, npc.x, npc.y, "npc", NpcLabel(npc) } }
 end
 
--- The wedge a picture looked across, on its own map: from the spot, the way you faced, as wide
--- as the camera sees, reaching the same share of the map's width as the book's close-up
--- (UI.CONE_SHARE). The map's size in yards keeps the angles true to the ground.
-local function ConePoints(p)
-    local ok, ww, wh = pcall(C_Map.GetMapWorldSize, p.mapID)
-    if not ok or not ww or ww <= 0 or not wh or wh <= 0 then ww, wh = 1.5, 1 end
-    local half = math.rad(math.max(25, math.min(60, (p.fov or 90) / 2)))
-    local rx, ry = UI.CONE_SHARE, UI.CONE_SHARE * ww / wh
-    local pts = { { p.x, p.y } }
-    for k = 0, 6 do
-        local a = p.facing - half + 2 * half * k / 6
-        pts[#pts + 1] = { p.x - math.sin(a) * rx, p.y - math.cos(a) * ry }
+-- A picture's wedge on its own map: from the spot, the way you faced, as wide as the camera, as long
+-- as the book's close-up (UI.CONE_SHARE of the width); the map's size in yards keeps angles true.
+local function ConePoints(photo)
+    local ok, worldWidth, worldHeight = pcall(C_Map.GetMapWorldSize, photo.mapID)
+    if not ok or not worldWidth or worldWidth <= 0 or not worldHeight or worldHeight <= 0 then
+        worldWidth, worldHeight = 1.5, 1
     end
-    return pts
+    local half = math.rad(math.max(25, math.min(60, (photo.fov or 90) / 2)))
+    local reachX, reachY = UI.CONE_SHARE, UI.CONE_SHARE * worldWidth / worldHeight
+    local points = { { photo.x, photo.y } }
+    for step = 0, 6 do
+        local angle = photo.facing - half + 2 * half * step / 6
+        points[#points + 1] = { photo.x - math.sin(angle) * reachX, photo.y - math.cos(angle) * reachY }
+    end
+    return points
 end
 
 -- One picture (by its time): a pin where it was taken, and its view cone. Clicking opens its day.
-builders.photo = function(t)
-    local p, day = ns.FindPhoto(t)
-    if not p or not p.mapID or not p.x then return end
-    local where = (p.place and p.zone and p.place ~= p.zone) and L["%s, %s"]:format(p.place, p.zone) or p.place or p.zone or L["a picture"]
-    local title = p.caption or L["Picture at %s"]:format(where)
+builders.photo = function(when)
+    local photo, day = ns.FindPhoto(when)
+    if not photo or not photo.mapID or not photo.x then return end
+    local where = (photo.place and photo.zone and photo.place ~= photo.zone)
+        and L["%s, %s"]:format(photo.place, photo.zone) or photo.place or photo.zone or L["a picture"]
+    local title = photo.caption or L["Picture at %s"]:format(where)
     local pins = {}
-    if p.facing then pins[#pins + 1] = { p.mapID, p.x, p.y, "cone", title, points = ConePoints(p) } end
-    pins[#pins + 1] = { p.mapID, p.x, p.y, "place", L["%s, %s"]:format(title, date(L["%d %b, %H:%M"], p.t)) }
+    if photo.facing then
+        pins[#pins + 1] = { photo.mapID, photo.x, photo.y, "cone", title, points = ConePoints(photo) }
+    end
+    pins[#pins + 1] = { photo.mapID, photo.x, photo.y, "place", L["%s, %s"]:format(title, date(L["%d %b, %H:%M"], photo.t)) }
     return title, "log", pins, "photos:" .. day
 end
 
 builders.zone = function(name)
-    local z = ns.db.zones[name]
-    if not z then return end
+    local record = ns.db.zones[name]
+    if not record then return end
     local pins = {}
-    for _, n in pairs(ns.db.npcs) do
-        if n.zone == name and n.mapID and next(n.roles) then
-            pins[#pins + 1] = { n.mapID, n.x, n.y, "npc", n.title and L["%s, %s"]:format(n.name or "?", n.title) or (n.name or "?") }
+    for _, npc in pairs(ns.db.npcs) do
+        if npc.zone == name and npc.mapID and next(npc.roles) then
+            pins[#pins + 1] = { npc.mapID, npc.x, npc.y, "npc", NpcLabel(npc) }
         end
     end
-    for _, d in ipairs(ns.db.deaths) do
-        if d.zone == name and d.mapID then
-            pins[#pins + 1] = { d.mapID, d.x, d.y, "death", L["%s, %s"]:format(d.killer and L["Slain by %s"]:format(d.killer) or L["Died"], ns.Date(d.time)) }
+    for _, death in ipairs(ns.db.deaths) do
+        if death.zone == name and death.mapID then
+            local how = death.killer and L["Slain by %s"]:format(death.killer) or L["Died"]
+            pins[#pins + 1] = { death.mapID, death.x, death.y, "death", L["%s, %s"]:format(how, ns.Date(death.time)) }
         end
     end
-    for place, p in pairs(z.places or {}) do
-        if p.mapID then pins[#pins + 1] = { p.mapID, p.x, p.y, "place", L["%s, found %s"]:format(place, ns.Date(p.t)) } end
+    for place, found in pairs(record.places or {}) do
+        if found.mapID then
+            pins[#pins + 1] = { found.mapID, found.x, found.y, "place", L["%s, found %s"]:format(place, ns.Date(found.t)) }
+        end
     end
     return name, "zones", pins
 end
 
 -- Fishing (Fishing.lua): the points you cast from, each counting the casts made near it, in a
--- pool's colour where most of them were into pools. A click opens the spot (or `sel`).
-local function FishPins(pins, zone, place, spot, label, sel)
+-- pool's colour where most of them were into pools. A click opens the spot (or `selected`).
+local function FishPins(pins, zone, place, spot, label, selected)
     if not spot.mapID then return end
-    for _, p in ipairs(spot.pts or {}) do
-        local casts, pooled = p[3] or 1, p[4] or 0
-        pins[#pins + 1] = { spot.mapID, p[1], p[2], pooled * 2 > casts and "pool" or "fish", label,
+    for _, point in ipairs(spot.pts or {}) do
+        local casts, pooled = point[3] or 1, point[4] or 0
+        pins[#pins + 1] = { spot.mapID, point[1], point[2], pooled * 2 > casts and "pool" or "fish", label,
             note = string.format(L["Fished here %d %s%s"], casts, casts == 1 and L["time"] or L["times"],
                 pooled > 0 and string.format(L[", %d into a pool"], pooled) or ""),
-            sel = sel or ns.FishSpotKey(zone, place) }
+            sel = selected or ns.FishSpotKey(zone, place) }
     end
 end
 
 -- One catch: everywhere you've caught it.
 builders.fish = function(id)
-    local e = ns.FishingData().items[id]
-    if not e then return end
+    local journal = ns.FishingJournal()
+    local catch = journal.items[id]
+    if not catch then return end
     local pins = {}
-    for zone, places in pairs(ns.FishingData().spots) do
+    for zone, places in pairs(journal.spots) do
         for place, spot in pairs(places) do
-            local s = spot.items[id]
-            if s then
-                FishPins(pins, zone, place, spot, string.format(L["%s: %d at %s"], e.name or "?", s.n, ns.FishSpotName(zone, place)))
+            local tally = spot.items[id]
+            if tally then
+                FishPins(pins, zone, place, spot,
+                    string.format(L["%s: %d at %s"], catch.name or "?", tally.n, ns.FishSpotName(zone, place)))
             end
         end
     end
-    return e.name or L["A catch"], "fishing", pins, id
+    return catch.name or L["A catch"], "fishing", pins, id
 end
 
 -- One fishing spot (by its key).
@@ -185,7 +199,7 @@ end
 -- Every spot you've fished from: shown by a setting rather than a Map button (FISH_LAYER).
 builders.fishing = function()
     local pins = {}
-    for zone, places in pairs(ns.FishingData().spots) do
+    for zone, places in pairs(ns.FishingJournal().spots) do
         for place, spot in pairs(places) do
             FishPins(pins, zone, place, spot, ns.FishSpotName(zone, place))
         end
@@ -207,29 +221,28 @@ local function Ancestors(mapID)
     for _ = 1, 10 do
         if not id or id == 0 or set[id] then break end
         set[id] = true
-        local info = C_Map.GetMapInfo(id)
-        id = info and info.parentMapID
+        local map = C_Map.GetMapInfo(id)
+        id = map and map.parentMapID
     end
     ancestry[mapID] = set
     return set
 end
 
--- Where a spot recorded on map `from` falls on map `to`, or nil. Only on its own map, the maps
--- above it (zone, continent) and the maps inside it (a cave): zone rectangles overlap, so a
--- plain conversion would also put Elwynn's pins along the edge of Westfall.
+-- Where a spot on map `from` falls on map `to`: only its own map, those above it and those inside
+-- it (zone rectangles overlap, so a plain conversion would put Elwynn's pins along Westfall's edge).
 local function Place(from, x, y, to)
     if not (from and x and y) then return end
     if from == to then return x, y end
     if not (Ancestors(from)[to] or Ancestors(to)[from]) then return end
-    local info = C_Map.GetMapInfo(to)
-    if not info or (info.mapType or 0) < 2 then return end -- not on the world or cosmic maps
+    local map = C_Map.GetMapInfo(to)
+    if not map or (map.mapType or 0) < 2 then return end -- not on the world or cosmic maps
     local ok, continent, world = pcall(C_Map.GetWorldPosFromMapPos, from, CreateVector2D(x, y))
     if not ok or not continent or not world then return end
-    local ok2, _, pos = pcall(C_Map.GetMapPosFromWorldPos, continent, world, to)
-    if not ok2 or not pos then return end
-    local px, py = pos:GetXY()
-    if not px or px < 0 or px > 1 or py < 0 or py > 1 then return end
-    return px, py
+    local okPosition, _, position = pcall(C_Map.GetMapPosFromWorldPos, continent, world, to)
+    if not okPosition or not position then return end
+    local placedX, placedY = position:GetXY()
+    if not placedX or placedX < 0 or placedX > 1 or placedY < 0 or placedY > 1 then return end
+    return placedX, placedY
 end
 
 ------------------------------------------------------------------------------
@@ -244,14 +257,14 @@ pinMixin.SetPassThroughButtons = function() end
 -- The map wires up a pin's mouse scripts itself (and asserts the pin set none), then calls
 -- these methods: OnMouseEnter, OnMouseLeave, and OnMouseUp(button, upInside).
 function pinMixin:OnMouseEnter()
-    local d = self.data
-    if not d then return end
+    local pin = self.data
+    if not pin then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText(d.label)
-    if d.note then GameTooltip:AddLine(d.note, 1, 1, 1) end
-    GameTooltip:AddLine(L["Captain's Log: %s"]:format(d.title), 0.85, 0.75, 0.55)
+    GameTooltip:SetText(pin.label)
+    if pin.note then GameTooltip:AddLine(pin.note, 1, 1, 1) end
+    GameTooltip:AddLine(L["Captain's Log: %s"]:format(pin.title), 0.85, 0.75, 0.55)
     -- Hunting areas let left-clicks through to the map, so only the dots open the book.
-    if not d.area then GameTooltip:AddLine(L["Click to open it in the book"], 0.6, 0.6, 0.6) end
+    if not pin.area then GameTooltip:AddLine(L["Click to open it in the book"], 0.6, 0.6, 0.6) end
     GameTooltip:AddLine(L["Right-click to remove these pins"], 0.6, 0.6, 0.6)
     GameTooltip:AddLine(L["Shift-right-click to remove all of the book's pins"], 0.6, 0.6, 0.6)
     GameTooltip:Show()
@@ -263,13 +276,13 @@ end
 
 -- upInside is false when the button was released off the pin; older maps don't pass it.
 function pinMixin:OnMouseUp(button, upInside)
-    local d = self.data
-    if not d or upInside == false then return end
+    local pin = self.data
+    if not pin or upInside == false then return end
     GameTooltip:Hide()
     if button == "RightButton" then
-        if IsShiftKeyDown() then MapPins.Clear() else MapPins.Remove(d.layer.kind, d.layer.id) end
+        if IsShiftKeyDown() then MapPins.Clear() else MapPins.Remove(pin.layer.kind, pin.layer.id) end
     elseif button == "LeftButton" then
-        ns.Book:Goto(d.page, d.sel or d.layer.id)
+        ns.Book:Goto(pin.page, pin.sel or pin.layer.id)
     end
 end
 
@@ -291,18 +304,18 @@ local function CreatePin()
     return pin
 end
 
-function pinMixin:OnAcquired(data, x, y)
+function pinMixin:OnAcquired(pin, x, y)
     self:UseFrameLevelType("PIN_FRAME_LEVEL_AREA_POI")
     self:SetPosition(x, y)
-    self.data = data
-    local atlas = UI.PIN_ATLAS[data.kind]
+    self.data = pin
+    local atlas = UI.PIN_ATLAS[pin.kind]
     local iconic = atlas and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) ~= nil
     if iconic then self.icon:SetAtlas(atlas) end
     self.icon:SetShown(iconic)
     self.rim:SetShown(not iconic)
     self.fill:SetShown(not iconic)
-    local c = UI.PIN[data.kind] or UI.PIN.kill
-    self.fill:SetColorTexture(c[1], c[2], c[3], 1)
+    local color = UI.PIN[pin.kind] or UI.PIN.kill
+    self.fill:SetColorTexture(color[1], color[2], color[3], 1)
     self:SetSize(iconic and 24 or 10, iconic and 24 or 10)
     self:Show()
 end
@@ -312,11 +325,8 @@ function pinMixin:OnReleased()
 end
 
 ------------------------------------------------------------------------------
--- Hunting areas: a creature slain often on one map is drawn as the ground you hunted it on.
--- Kills close together form a cluster; each cluster becomes the shape around its points
--- (padded, so a lone kill is a small patch), filled and outlined. The shapes are part of the
--- map, so they zoom with it, and they let left-clicks through so the map can still be dragged
--- and clicked beneath them; hover and right-click still reach them.
+-- Hunting areas: a creature slain often on one map is drawn as the ground you hunted it on, each
+-- cluster of kills as a padded shape around them that zooms with the map and lets left-clicks through.
 ------------------------------------------------------------------------------
 
 local AREA_TEMPLATE = "CaptainsLogMapAreaTemplate"
@@ -324,9 +334,6 @@ local AREA_MIN = 15     -- more kills than this on the map being viewed, and it'
 local AREA_LINK = 0.06  -- kills closer than this (share of map width) share a hunting ground
 local AREA_PAD = 0.012  -- how far the shape reaches past its outermost kills
 local PAD_STEPS = 8     -- points around each kill when padding: an octagon, near enough round
-
--- Texture corners, for drawing triangles by moving them (Texture:SetVertexOffset).
-local UL, LL, UR, LR = UPPER_LEFT_VERTEX or 1, LOWER_LEFT_VERTEX or 2, UPPER_RIGHT_VERTEX or 3, LOWER_RIGHT_VERTEX or 4
 
 local areaMixin = CreateFromMixins(pinMixin)
 
@@ -342,65 +349,53 @@ local function CreateAreaPin()
     return pin
 end
 
--- A filled triangle in the pin's own coordinates (x right, y down from its top-left): a plain
--- texture over the triangle's bounding box, with its corners moved onto the three points
--- (the fourth folded onto the third).
-local function Triangle(pin, i, ax, ay, bx, by, cx, cy, r, g, b, a)
-    local t = pin.tris[i]
-    if not t then
-        t = pin:CreateTexture(nil, "ARTWORK")
-        pin.tris[i] = t
+local function Triangle(pin, index, ax, ay, bx, by, cx, cy, r, g, b, a)
+    local texture = pin.tris[index]
+    if not texture then
+        texture = pin:CreateTexture(nil, "ARTWORK")
+        pin.tris[index] = texture
     end
-    local minX, maxX = math.min(ax, bx, cx), math.max(ax, bx, cx)
-    local minY, maxY = math.min(ay, by, cy), math.max(ay, by, cy)
-    maxX, maxY = math.max(maxX, minX + 0.01), math.max(maxY, minY + 0.01)
-    t:SetColorTexture(r, g, b, a)
-    t:ClearAllPoints()
-    t:SetPoint("TOPLEFT", pin, "TOPLEFT", minX, -minY)
-    t:SetSize(maxX - minX, maxY - minY)
-    -- Offsets are from each corner's own place, with y pointing up.
-    t:SetVertexOffset(UL, ax - minX, -(ay - minY))
-    t:SetVertexOffset(LL, bx - minX, -(by - maxY))
-    t:SetVertexOffset(UR, cx - maxX, -(cy - minY))
-    t:SetVertexOffset(LR, cx - maxX, -(cy - maxY))
-    t:Show()
+    texture:SetColorTexture(r, g, b, a)
+    UI.DrawTriangle(texture, pin, ax, ay, bx, by, cx, cy)
 end
 
-local function Edge(pin, i, ax, ay, bx, by, r, g, b, a)
-    local l = pin.lines[i]
-    if not l then
-        l = pin:CreateLine(nil, "OVERLAY")
-        pin.lines[i] = l
+local function Edge(pin, index, ax, ay, bx, by, r, g, b, a)
+    local line = pin.lines[index]
+    if not line then
+        line = pin:CreateLine(nil, "OVERLAY")
+        pin.lines[index] = line
     end
-    l:SetThickness(1.5)
-    l:SetColorTexture(r, g, b, a)
-    l:SetStartPoint("TOPLEFT", pin, ax, -ay)
-    l:SetEndPoint("TOPLEFT", pin, bx, -by)
-    l:Show()
+    line:SetThickness(1.5)
+    line:SetColorTexture(r, g, b, a)
+    line:SetStartPoint("TOPLEFT", pin, ax, -ay)
+    line:SetEndPoint("TOPLEFT", pin, bx, -by)
+    line:Show()
 end
 
-function areaMixin:OnAcquired(data, x, y)
+function areaMixin:OnAcquired(area, x, y)
     self:UseFrameLevelType("PIN_FRAME_LEVEL_AREA_POI")
     -- No scaling limits: the area keeps its size on the map, not on screen.
     self.scaleFactor, self.startScale, self.endScale = nil, nil, nil
     if self.SetIgnoreGlobalPinScale then self:SetIgnoreGlobalPinScale(true) end
     self:SetPosition(x, y)
-    self:SetSize(data.w, data.h)
-    self.data = data
+    self:SetSize(area.w, area.h)
+    self.data = area
 
     -- A fan of triangles from the middle fills the (convex) shape; lines trace its edge.
-    local hull, n = data.hull, #data.hull
-    local mx, my = 0, 0
-    for _, p in ipairs(hull) do mx, my = mx + p[1], my + p[2] end
-    mx, my = mx / n, my / n
-    local c = data.color or UI.PIN.kill
-    for i = 1, n do
-        local p, q = hull[i], hull[i % n + 1]
-        Triangle(self, i, mx, my, p[1], p[2], q[1], q[2], c[1], c[2], c[3], data.alpha)
-        Edge(self, i, p[1], p[2], q[1], q[2], c[1] * 0.7, c[2] * 0.7, c[3] * 0.7, 0.85)
+    local hull, corners = area.hull, #area.hull
+    local middleX, middleY = 0, 0
+    for _, corner in ipairs(hull) do middleX, middleY = middleX + corner[1], middleY + corner[2] end
+    middleX, middleY = middleX / corners, middleY / corners
+    local color = area.color or UI.PIN.kill
+    for i = 1, corners do
+        local corner, nextCorner = hull[i], hull[i % corners + 1]
+        Triangle(self, i, middleX, middleY, corner[1], corner[2], nextCorner[1], nextCorner[2],
+            color[1], color[2], color[3], area.alpha)
+        Edge(self, i, corner[1], corner[2], nextCorner[1], nextCorner[2],
+            color[1] * 0.7, color[2] * 0.7, color[3] * 0.7, 0.85)
     end
-    for i = n + 1, #self.tris do self.tris[i]:Hide() end
-    for i = n + 1, #self.lines do self.lines[i]:Hide() end
+    for i = corners + 1, #self.tris do self.tris[i]:Hide() end
+    for i = corners + 1, #self.lines do self.lines[i]:Hide() end
     self:Show()
 end
 
@@ -415,115 +410,117 @@ function areaMixin:OnMouseUp(button, upInside)
 end
 
 -- Groups kills that are within AREA_LINK of each other (directly or through other kills).
-local function Clusters(spots, W, H)
-    local link = (AREA_LINK * W) ^ 2
+local function Clusters(spots, width, height)
+    local link = (AREA_LINK * width) ^ 2
     local parent = {}
     for i = 1, #spots do parent[i] = i end
-    local function root(i)
-        while parent[i] ~= i do
-            parent[i] = parent[parent[i]]
-            i = parent[i]
+    local function Root(index)
+        while parent[index] ~= index do
+            parent[index] = parent[parent[index]]
+            index = parent[index]
         end
-        return i
+        return index
     end
     for i = 1, #spots do
-        for j = i + 1, #spots do
-            local dx, dy = (spots[i][1] - spots[j][1]) * W, (spots[i][2] - spots[j][2]) * H
-            if dx * dx + dy * dy <= link then parent[root(i)] = root(j) end
+        for other = i + 1, #spots do
+            local dx, dy = (spots[i][1] - spots[other][1]) * width, (spots[i][2] - spots[other][2]) * height
+            if dx * dx + dy * dy <= link then parent[Root(i)] = Root(other) end
         end
     end
     local groups, list = {}, {}
-    for i, s in ipairs(spots) do
-        local r = root(i)
-        if not groups[r] then
-            groups[r] = {}
-            list[#list + 1] = groups[r]
+    for i, spot in ipairs(spots) do
+        local root = Root(i)
+        if not groups[root] then
+            groups[root] = {}
+            list[#list + 1] = groups[root]
         end
-        table.insert(groups[r], s)
+        table.insert(groups[root], spot)
     end
     return list
 end
 
 -- The convex hull of points { x, y } (monotone chain), counter-clockwise.
 local function Hull(points)
-    table.sort(points, function(a, b) return a[1] < b[1] or (a[1] == b[1] and a[2] < b[2]) end)
+    table.sort(points, function(first, second)
+        return first[1] < second[1] or (first[1] == second[1] and first[2] < second[2])
+    end)
     if #points < 3 then return points end
-    local function cross(o, a, b) return (a[1] - o[1]) * (b[2] - o[2]) - (a[2] - o[2]) * (b[1] - o[1]) end
+    local function Cross(origin, first, second)
+        return (first[1] - origin[1]) * (second[2] - origin[2]) - (first[2] - origin[2]) * (second[1] - origin[1])
+    end
     local lower, upper = {}, {}
-    for _, p in ipairs(points) do
-        while #lower >= 2 and cross(lower[#lower - 1], lower[#lower], p) <= 0 do table.remove(lower) end
-        lower[#lower + 1] = p
+    for _, point in ipairs(points) do
+        while #lower >= 2 and Cross(lower[#lower - 1], lower[#lower], point) <= 0 do table.remove(lower) end
+        lower[#lower + 1] = point
     end
     for i = #points, 1, -1 do
-        local p = points[i]
-        while #upper >= 2 and cross(upper[#upper - 1], upper[#upper], p) <= 0 do table.remove(upper) end
-        upper[#upper + 1] = p
+        local point = points[i]
+        while #upper >= 2 and Cross(upper[#upper - 1], upper[#upper], point) <= 0 do table.remove(upper) end
+        upper[#upper + 1] = point
     end
     table.remove(lower)
     table.remove(upper)
-    for _, p in ipairs(upper) do lower[#lower + 1] = p end
+    for _, point in ipairs(upper) do lower[#lower + 1] = point end
     return lower
+end
+
+-- A hull moved to start at 0, 0, with its box: shape, minX, maxX, minY, maxY.
+local function Shape(hull)
+    local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
+    for _, point in ipairs(hull) do
+        minX, maxX = math.min(minX, point[1]), math.max(maxX, point[1])
+        minY, maxY = math.min(minY, point[2]), math.max(maxY, point[2])
+    end
+    local shape = {}
+    for i, point in ipairs(hull) do shape[i] = { point[1] - minX, point[2] - minY } end
+    return shape, minX, maxX, minY, maxY
 end
 
 -- Draws one creature's kills (already on this map) as hunting areas.
 local function AddAreas(map, spots, base)
-    local W, H = map:GetCanvas():GetSize()
-    if not W or W == 0 or not H or H == 0 then return false end
-    local groups = Clusters(spots, W, H)
+    local width, height = map:GetCanvas():GetSize()
+    if not width or width == 0 or not height or height == 0 then return false end
+    local groups = Clusters(spots, width, height)
     local most = 0
-    for _, g in ipairs(groups) do most = math.max(most, #g) end
-    local pad = AREA_PAD * W
-    for _, g in ipairs(groups) do
+    for _, group in ipairs(groups) do most = math.max(most, #group) end
+    local pad = AREA_PAD * width
+    for _, group in ipairs(groups) do
         -- Work in canvas units so the padding is round on screen, not stretched.
         local points = {}
-        for _, s in ipairs(g) do
-            for k = 0, PAD_STEPS - 1 do
-                local angle = k * 2 * math.pi / PAD_STEPS
-                points[#points + 1] = { s[1] * W + pad * math.cos(angle), s[2] * H + pad * math.sin(angle) }
+        for _, spot in ipairs(group) do
+            for step = 0, PAD_STEPS - 1 do
+                local angle = step * 2 * math.pi / PAD_STEPS
+                points[#points + 1] = { spot[1] * width + pad * math.cos(angle), spot[2] * height + pad * math.sin(angle) }
             end
         end
-        local hull = Hull(points)
-        local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
-        for _, p in ipairs(hull) do
-            minX, maxX = math.min(minX, p[1]), math.max(maxX, p[1])
-            minY, maxY = math.min(minY, p[2]), math.max(maxY, p[2])
-        end
-        local shape = {}
-        for i, p in ipairs(hull) do shape[i] = { p[1] - minX, p[2] - minY } end
+        local shape, minX, maxX, minY, maxY = Shape(Hull(points))
         map:AcquirePin(AREA_TEMPLATE, {
             area = true, label = base.label, title = base.title, page = base.page, layer = base.layer,
-            sel = base.sel, note = (#g == 1 and L["%d slain here"] or L["%d slain in this area"]):format(#g),
-            alpha = 0.16 + 0.22 * (#g / most),
+            sel = base.sel, note = (#group == 1 and L["%d slain here"] or L["%d slain in this area"]):format(#group),
+            alpha = 0.16 + 0.22 * (#group / most),
             hull = shape, w = maxX - minX, h = maxY - minY,
-        }, (minX + maxX) / 2 / W, (minY + maxY) / 2 / H)
+        }, (minX + maxX) / 2 / width, (minY + maxY) / 2 / height)
     end
     return true
 end
 
--- A picture's view cone: the wedge from where it was taken (p.points, on the picture's map),
+-- A picture's view cone: the wedge from where it was taken (pin.points, on the picture's map),
 -- drawn as a gold area on the map being viewed. Points off this map are dropped.
-local function AddCone(map, mapID, p, base)
-    local W, H = map:GetCanvas():GetSize()
-    if not W or W == 0 or not H or H == 0 then return end
-    local pts = {}
-    for _, q in ipairs(p.points or {}) do
-        local x, y = Place(p[1], q[1], q[2], mapID)
-        if x then pts[#pts + 1] = { x * W, y * H } end
+local function AddCone(map, mapID, pin, base)
+    local width, height = map:GetCanvas():GetSize()
+    if not width or width == 0 or not height or height == 0 then return end
+    local points = {}
+    for _, point in ipairs(pin.points or {}) do
+        local x, y = Place(pin[1], point[1], point[2], mapID)
+        if x then points[#points + 1] = { x * width, y * height } end
     end
-    if #pts < 3 then return end
-    local hull = Hull(pts)
-    local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
-    for _, q in ipairs(hull) do
-        minX, maxX = math.min(minX, q[1]), math.max(maxX, q[1])
-        minY, maxY = math.min(minY, q[2]), math.max(maxY, q[2])
-    end
-    local shape = {}
-    for i, q in ipairs(hull) do shape[i] = { q[1] - minX, q[2] - minY } end
+    if #points < 3 then return end
+    local shape, minX, maxX, minY, maxY = Shape(Hull(points))
     map:AcquirePin(AREA_TEMPLATE, {
         area = true, label = base.label, title = base.title, page = base.page, layer = base.layer, sel = base.sel,
         note = L["What the picture looked at"], alpha = 0.3, color = UI.PIN.place,
         hull = shape, w = math.max(1, maxX - minX), h = math.max(1, maxY - minY),
-    }, (minX + maxX) / 2 / W, (minY + maxY) / 2 / H)
+    }, (minX + maxX) / 2 / width, (minY + maxY) / 2 / height)
 end
 
 ------------------------------------------------------------------------------
@@ -549,45 +546,46 @@ function provider:RefreshAllData()
     for i, layer in ipairs(ns.db.mapLayers) do layers[i] = layer end
     if ns.db.settings.fishPins then layers[#layers + 1] = FISH_LAYER end
     for _, layer in ipairs(layers) do
-        local build = builders[layer.kind]
-        local ok, title, page, pins, sel = false, nil, nil, nil, nil
-        if build then ok, title, page, pins, sel = pcall(build, layer.id) end
+        local Build = builders[layer.kind]
+        local ok, title, page, pins, selected = false, nil, nil, nil, nil
+        if Build then ok, title, page, pins, selected = pcall(Build, layer.id) end
         if ok and pins then
-            -- sel: what a pin's click opens in the book (the entry itself unless the builder says).
-            sel = sel or layer.id
+            -- What a pin's click opens in the book: the entry itself unless the builder says.
+            selected = selected or layer.id
             local kills, order, others = {}, {}, {}
-            for _, p in ipairs(pins) do
-                if p[4] == "cone" then
-                    AddCone(map, mapID, p, { label = p[5], title = title, page = page, layer = layer, sel = sel })
+            for _, pin in ipairs(pins) do
+                if pin[4] == "cone" then
+                    AddCone(map, mapID, pin, { label = pin[5], title = title, page = page, layer = layer, sel = selected })
                 else
-                    local x, y = Place(p[1], p[2], p[3], mapID)
+                    local x, y = Place(pin[1], pin[2], pin[3], mapID)
                     if x then
-                        if p[4] == "kill" then
-                            if not kills[p[5]] then
-                                kills[p[5]] = {}
-                                order[#order + 1] = p[5]
+                        if pin[4] == "kill" then
+                            if not kills[pin[5]] then
+                                kills[pin[5]] = {}
+                                order[#order + 1] = pin[5]
                             end
-                            table.insert(kills[p[5]], { x, y })
+                            table.insert(kills[pin[5]], { x, y })
                         else
-                            others[#others + 1] = { p, x, y }
+                            others[#others + 1] = { pin, x, y }
                         end
                     end
                 end
             end
             for _, label in ipairs(order) do
                 local spots = kills[label]
-                local base = { label = label, title = title, page = page, layer = layer, sel = sel }
+                local base = { label = label, title = title, page = page, layer = layer, sel = selected }
                 if not (#spots > AREA_MIN and AddAreas(map, spots, base)) then
-                    for _, s in ipairs(spots) do
+                    for _, spot in ipairs(spots) do
                         map:AcquirePin(TEMPLATE, { kind = "kill", label = label, note = L["Slain here"],
-                            title = title, page = page, layer = layer, sel = sel }, s[1], s[2])
+                            title = title, page = page, layer = layer, sel = selected }, spot[1], spot[2])
                     end
                 end
             end
             -- A pin may carry its own note and its own entry to open (a fishing spot).
-            for _, o in ipairs(others) do
-                map:AcquirePin(TEMPLATE, { kind = o[1][4], label = o[1][5], note = o[1].note, title = title,
-                    page = page, layer = layer, sel = o[1].sel or sel }, o[2], o[3])
+            for _, other in ipairs(others) do
+                local pin = other[1]
+                map:AcquirePin(TEMPLATE, { kind = pin[4], label = pin[5], note = pin.note, title = title,
+                    page = page, layer = layer, sel = pin.sel or selected }, other[2], other[3])
             end
         end
     end
@@ -605,21 +603,21 @@ MapPins.Refresh = Refresh
 -- The book stays open beside the map: it drops one layer down so the map sits on top, and
 -- comes back up when the map closes (or when a pin opens a page in it, see Book:Open).
 local function BookBehind()
-    local f = ns.Book.frame
-    if f and f:IsShown() then
-        f:SetFrameStrata("MEDIUM")
-        f:Lower()
+    local book = ns.Book.frame
+    if book and book:IsShown() then
+        book:SetFrameStrata("MEDIUM")
+        book:Lower()
     end
 end
 
 local function BookInFront()
-    local f = ns.Book.frame
-    if f then f:SetFrameStrata("HIGH") end
+    local book = ns.Book.frame
+    if book then book:SetFrameStrata("HIGH") end
 end
 
 local function Find(kind, id)
-    for i, l in ipairs(ns.db.mapLayers) do
-        if l.kind == kind and l.id == id then return i end
+    for i, layer in ipairs(ns.db.mapLayers) do
+        if layer.kind == kind and layer.id == id then return i end
     end
 end
 
@@ -659,11 +657,11 @@ function MapPins.Remove(kind, id)
         Refresh()
         return
     end
-    local i = Find(kind, id)
-    if not i then return end
+    local index = Find(kind, id)
+    if not index then return end
     local ok, title = false, nil
     if builders[kind] then ok, title = pcall(builders[kind], id) end
-    table.remove(ns.db.mapLayers, i)
+    table.remove(ns.db.mapLayers, index)
     ns.Print(L["Took %s off your map."]:format((ok and title) or L["those pins"]))
     Refresh()
 end
@@ -679,11 +677,11 @@ end
 -- Joining the world map
 ------------------------------------------------------------------------------
 
-local function RegisterPool(template, create)
+local function RegisterPool(template, Create)
     local pool = CreateUnsecuredRegionPoolInstance and CreateUnsecuredRegionPoolInstance(template)
         or CreateFramePool("FRAME")
     pool.parent = WorldMapFrame:GetCanvas()
-    pool.createFunc = create
+    pool.createFunc = Create
     pool.resetFunc = function(_, pin)
         pin:Hide()
         pin:ClearAllPoints()
@@ -712,9 +710,9 @@ end
 if WorldMapFrame then
     TrySetup()
 else
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("ADDON_LOADED")
-    f:SetScript("OnEvent", function(self, _, name)
+    local waiter = CreateFrame("Frame")
+    waiter:RegisterEvent("ADDON_LOADED")
+    waiter:SetScript("OnEvent", function(self, _, name)
         if name == "Blizzard_WorldMap" then
             self:UnregisterAllEvents()
             TrySetup()

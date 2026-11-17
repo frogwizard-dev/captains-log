@@ -2,13 +2,11 @@ local _, ns = ...
 local L = ns.L
 local issecret = ns.issecret
 
--- Combat notes for the bestiary, pieced together from what this client still tells addons:
---   UNIT_COMBAT        hits, misses, immunities and resists on you, your target and nameplates
---   UNIT_SPELLCAST_*   that a mob cast something, and when it finished (the spell is secret)
---   UNIT_AURA          debuffs landing on you and who cast them, where those aren't secret
--- A hit on you doesn't say who dealt it. A spell school is credited to the mob whose cast
--- finished just before it; otherwise a hit only counts when every mob attacking you is the same
--- kind, and melee range and swing speed only when exactly one is.
+-- Combat notes for the bestiary, from what this client still tells addons: UNIT_COMBAT (hits,
+-- misses, immunities, resists), UNIT_SPELLCAST_* (a mob cast something; the spell is secret) and
+-- UNIT_AURA (debuffs on you and who cast them). A hit on you doesn't say who dealt it: its school goes
+-- to the mob whose cast just finished, else only when every attacker is one kind (melee: exactly one).
+-- How hard a hit lands is secret since Forever 1.60.1.70938: melee ranges already saved stay.
 
 local CAST_WINDOW = 1.5              -- a spell hit this soon after a mob's cast is that cast's
 local YOUR_WINDOW = 1.0              -- an immunity this soon after your cast is to that spell
@@ -23,15 +21,15 @@ local Safe = FrogLib.Safe
 
 function ns.SchoolName(mask)
     local names = {}
-    for _, s in ipairs(SCHOOLS) do
-        if bit.band(mask, s[1]) ~= 0 then names[#names + 1] = s[2] end
+    for _, school in ipairs(SCHOOLS) do
+        if bit.band(mask, school[1]) ~= 0 then names[#names + 1] = school[2] end
     end
     return #names > 0 and table.concat(names, "/") or L["unknown"]
 end
 
-local function Bump(t, key)
-    t[key] = (t[key] or 0) + 1
-    return t[key] == 1 -- true the first time: something new to show
+local function Bump(counts, key)
+    counts[key] = (counts[key] or 0) + 1
+    return counts[key] == 1 -- true the first time: something new to show
 end
 
 -- The NPC behind a unit token, if it's one we can attack: id, guid.
@@ -43,17 +41,21 @@ local function EnemyNPC(unit)
 end
 
 -- Combat events arrive once per token a unit has, so your target's also come as its nameplate;
--- only target and nameplates are read, and a repeat within the same frame is dropped.
+-- only target and nameplates are read, and a repeat from another token in the same frame is
+-- dropped. The same token twice in one frame is a second hit (with sizes secret, two look alike).
 local seen, seenAt = {}, 0
-local function Repeat(...)
+local function Repeat(unit, ...)
     local now = GetTime()
     if now ~= seenAt then
         wipe(seen)
         seenAt = now
     end
-    local sig = strjoin("|", tostringall(...))
-    if seen[sig] then return true end
-    seen[sig] = true
+    local signature = strjoin("|", tostringall(...))
+    local mine = signature .. "|" .. unit
+    local times = (seen[mine] or 0) + 1
+    seen[mine] = times
+    if times <= (seen[signature] or 0) then return true end
+    seen[signature] = times
     return false
 end
 
@@ -66,9 +68,9 @@ end
 local function Notes(id, unit, guid)
     local name
     if not guid or Safe(UnitGUID(unit)) == guid then name = Safe(UnitName(unit)) end
-    local m = ns.Mob(id, name)
-    m.combat = m.combat or {}
-    return m.combat
+    local mob = ns.Mob(id, name)
+    mob.combat = mob.combat or {}
+    return mob.combat
 end
 
 ------------------------------------------------------------------------------
@@ -80,14 +82,14 @@ end
 local function Attackers()
     local list, anyPlate = {}, false
     for i = 1, 40 do
-        local u = "nameplate" .. i
-        if UnitExists(u) then
+        local plate = "nameplate" .. i
+        if UnitExists(plate) then
             anyPlate = true
-            if Safe(UnitIsUnit(u .. "target", "player")) and Safe(UnitCanAttack("player", u)) then
-                if Safe(UnitIsPlayer(u)) ~= false then return nil end
-                local id, guid = EnemyNPC(u)
+            if Safe(UnitIsUnit(plate .. "target", "player")) and Safe(UnitCanAttack("player", plate)) then
+                if Safe(UnitIsPlayer(plate)) ~= false then return nil end
+                local id, guid = EnemyNPC(plate)
                 if not id then return nil end
-                list[#list + 1] = { id = id, guid = guid, unit = u }
+                list[#list + 1] = { id = id, guid = guid, unit = plate }
             end
         end
     end
@@ -125,10 +127,10 @@ local function OnCast(event, unit, castGUID, spellID)
     end
     if not Watched(unit) then return end
     local id, guid = EnemyNPC(unit)
-    if not id or Repeat(event, guid, Safe(castGUID) or "") then return end
-    local c = Notes(id, unit)
-    if not c.casts then ns.Refresh() end
-    c.casts = (c.casts or 0) + 1
+    if not id or Repeat(unit, event, guid, Safe(castGUID) or "") then return end
+    local notes = Notes(id, unit)
+    if not notes.casts then ns.Refresh() end
+    notes.casts = (notes.casts or 0) + 1
     table.insert(recentCasts, { id = id, guid = guid, unit = unit, t = GetTime() })
 end
 
@@ -144,46 +146,43 @@ end
 -- Hits on mobs: immunities, resists, reflects, and how often they avoid melee
 ------------------------------------------------------------------------------
 
-local function OnMobHit(unit, action, flag, amount, school)
+local function OnMobHit(unit, action, flag, school)
     if not Watched(unit) then return end
     local id, guid = EnemyNPC(unit)
-    if not id or Repeat("hit", guid, action, flag, amount, school) then return end
-    local c = Notes(id, unit)
-    local new = false
+    if not id or Repeat(unit, "hit", guid, action, flag, school) then return end
+    local notes = Notes(id, unit)
+    local firstSeen = false
 
     if action == "IMMUNE" then
-        c.immune = c.immune or {}
-        new = Bump(c.immune, school)
+        notes.immune = notes.immune or {}
+        firstSeen = Bump(notes.immune, school)
         if lastMine and GetTime() - lastMine.t <= YOUR_WINDOW then
-            c.immuneTo = c.immuneTo or {}
-            new = Bump(c.immuneTo, lastMine.name) or new
+            notes.immuneTo = notes.immuneTo or {}
+            firstSeen = Bump(notes.immuneTo, lastMine.name) or firstSeen
         end
-    elseif action == "RESIST" then
-        c.resist = c.resist or {}
-        c.resist[school] = c.resist[school] or { full = 0, partial = 0 }
-        new = c.resist[school].full + c.resist[school].partial == 0
-        c.resist[school].full = c.resist[school].full + 1
-    elseif action == "WOUND" and flag and flag:find("RESIST") then
-        c.resist = c.resist or {}
-        c.resist[school] = c.resist[school] or { full = 0, partial = 0 }
-        new = c.resist[school].full + c.resist[school].partial == 0
-        c.resist[school].partial = c.resist[school].partial + 1
+    elseif action == "RESIST" or (action == "WOUND" and flag and flag:find("RESIST")) then
+        notes.resist = notes.resist or {}
+        local resists = notes.resist[school] or { full = 0, partial = 0 }
+        notes.resist[school] = resists
+        firstSeen = resists.full + resists.partial == 0
+        local how = action == "RESIST" and "full" or "partial"
+        resists[how] = resists[how] + 1
     elseif action == "REFLECT" then
-        c.reflect = c.reflect or {}
-        new = Bump(c.reflect, school)
+        notes.reflect = notes.reflect or {}
+        firstSeen = Bump(notes.reflect, school)
     end
 
     -- Its defence: out of the physical swings at it, how many it dodged, parried or blocked.
     if school == 1 and (action == "WOUND" or AVOIDED[action]) then
-        c.defence = c.defence or { swings = 0 }
-        local d = c.defence
-        d.swings = d.swings + 1
+        notes.defence = notes.defence or { swings = 0 }
+        local defence = notes.defence
+        defence.swings = defence.swings + 1
         if action == "DODGE" or action == "PARRY" or action == "BLOCK" then
             local key = action:lower()
-            d[key] = (d[key] or 0) + 1
+            defence[key] = (defence[key] or 0) + 1
         end
     end
-    if new then ns.Refresh() end
+    if firstSeen then ns.Refresh() end
 end
 
 ------------------------------------------------------------------------------
@@ -198,54 +197,55 @@ local function OnYourHit(action, flag, amount, school)
     local attackers = Attackers()
     -- Spells: whoever just finished casting. Melee never goes by casts: another mob's swing
     -- can land in the same moment.
-    local src = school ~= 1 and RecentCaster(now) or nil
-    local byCast = src ~= nil
-    src = src or OneKind(attackers)
-    if not src then return end
+    local source = school ~= 1 and RecentCaster(now) or nil
+    local byCast = source ~= nil
+    source = source or OneKind(attackers)
+    if not source then return end
 
-    local c = Notes(src.id, src.unit, src.guid)
-    c.attacks = c.attacks or {}
-    local new = Bump(c.attacks, school)
+    local notes = Notes(source.id, source.unit, source.guid)
+    notes.attacks = notes.attacks or {}
+    local firstSeen = Bump(notes.attacks, school)
 
     if school == 1 and not byCast and attackers and #attackers == 1 then
-        c.melee = c.melee or { gaps = 0, gapTime = 0 }
-        local m = c.melee
+        notes.melee = notes.melee or { gaps = 0, gapTime = 0 }
+        local melee = notes.melee
+        -- amount is nil while the game keeps it secret; ranges pick up again if it stops.
         if action == "WOUND" and amount and amount > 0 and (not flag or flag == "") then
-            m.min = math.min(m.min or amount, amount)
-            m.max = math.max(m.max or amount, amount)
+            melee.min = math.min(melee.min or amount, amount)
+            melee.max = math.max(melee.max or amount, amount)
         end
-        local last = lastSwing[src.guid]
+        local last = lastSwing[source.guid]
         if last and now - last >= SWING_MIN and now - last <= SWING_MAX then
-            m.gaps = m.gaps + 1
-            m.gapTime = m.gapTime + (now - last)
+            melee.gaps = melee.gaps + 1
+            melee.gapTime = melee.gapTime + (now - last)
         end
-        lastSwing[src.guid] = now
+        lastSwing[source.guid] = now
     else
         wipe(lastSwing) -- someone else joined in; swing gaps would mix
     end
-    if new then ns.Refresh() end
+    if firstSeen then ns.Refresh() end
 end
 
 ------------------------------------------------------------------------------
 -- Debuffs mobs put on you, by name, when the client allows it
 ------------------------------------------------------------------------------
 
-local function OnAura(info)
-    if not info or Safe(info.isFullUpdate) or not info.addedAuras then return end
-    for _, aura in ipairs(info.addedAuras) do
-        local harmful, name, src = Safe(aura.isHarmful), Safe(aura.name), Safe(aura.sourceUnit)
-        if harmful and name and src then
-            local id = EnemyNPC(src)
+local function OnAura(changes)
+    if not changes or Safe(changes.isFullUpdate) or not changes.addedAuras then return end
+    for _, aura in ipairs(changes.addedAuras) do
+        local harmful, name, caster = Safe(aura.isHarmful), Safe(aura.name), Safe(aura.sourceUnit)
+        if harmful and name and caster then
+            local id = EnemyNPC(caster)
             if id then
-                local c = Notes(id, src)
-                c.inflicts = c.inflicts or {}
-                local e = c.inflicts[name]
-                if not e then
-                    e = { n = 0, spell = Safe(aura.spellId), icon = Safe(aura.icon) }
-                    c.inflicts[name] = e
+                local notes = Notes(id, caster)
+                notes.inflicts = notes.inflicts or {}
+                local debuff = notes.inflicts[name]
+                if not debuff then
+                    debuff = { n = 0, spell = Safe(aura.spellId), icon = Safe(aura.icon) }
+                    notes.inflicts[name] = debuff
                     ns.Refresh()
                 end
-                e.n = e.n + 1
+                debuff.n = debuff.n + 1
             end
         end
     end
@@ -270,7 +270,7 @@ frame:SetScript("OnEvent", function(_, event, unit, ...)
         if unit == "player" then
             OnYourHit(action, flag, amount, school)
         else
-            OnMobHit(unit, action, flag, amount, school)
+            OnMobHit(unit, action, flag, school)
         end
     elseif event == "UNIT_AURA" then
         -- Aura data can be locked down in some content; skip rather than error.
@@ -287,11 +287,14 @@ end)
 -- The bestiary's "In battle" lines
 ------------------------------------------------------------------------------
 
-local function ByCount(t)
+-- A count table's keys, most counted first; Name turns each key into words.
+local function KeysByCount(counts, Name)
     local list = {}
-    for k, n in pairs(t or {}) do list[#list + 1] = { key = k, n = n } end
-    table.sort(list, function(a, b) return a.n > b.n end)
-    return list
+    for key, count in pairs(counts or {}) do list[#list + 1] = { key = key, n = count } end
+    table.sort(list, function(first, second) return first.n > second.n end)
+    local names = {}
+    for _, entry in ipairs(list) do names[#names + 1] = Name and Name(entry.key) or entry.key end
+    return names, list
 end
 
 local function Join(list)
@@ -299,42 +302,43 @@ local function Join(list)
     return table.concat(list, ", ", 1, #list - 1) .. L[" and "] .. list[#list]
 end
 
-local function Pct(n, total)
-    return math.floor((n or 0) / total * 100 + 0.5) .. "%"
+local function Percent(count, total)
+    return math.floor((count or 0) / total * 100 + 0.5) .. "%"
 end
 
--- Plain sentences for a mob's combat notes, most telling first; empty if nothing's known.
-function ns.CombatLines(m)
-    local c, lines = m.combat, {}
-    if not c then return lines end
+local DEFENCES = { { "dodge", L["dodges %s"] }, { "parry", L["parries %s"] }, { "block", L["blocks %s"] } }
 
-    local spells = {}
-    for _, e in ipairs(ByCount(c.immuneTo)) do spells[#spells + 1] = e.key end
+-- Plain sentences for a mob's combat notes, most telling first; empty if nothing's known.
+function ns.CombatLines(mob)
+    local notes, lines = mob.combat, {}
+    if not notes then return lines end
+
+    local spells = KeysByCount(notes.immuneTo)
     if #spells > 0 then lines[#lines + 1] = L["Immune to %s."]:format(Join(spells)) end
-    local schools = {}
-    for _, e in ipairs(ByCount(c.immune)) do schools[#schools + 1] = ns.SchoolName(e.key) end
+    local schools = KeysByCount(notes.immune, ns.SchoolName)
     if #schools > 0 and #spells == 0 then
         lines[#lines + 1] = L["Shrugs off some %s attacks (immune)."]:format(Join(schools))
     end
 
-    for school, r in pairs(c.resist or {}) do
+    for school, resists in pairs(notes.resist or {}) do
         local parts = {}
-        if r.full > 0 then parts[#parts + 1] = L["%d fully"]:format(r.full) end
-        if r.partial > 0 then parts[#parts + 1] = L["%d partly"]:format(r.partial) end
+        if resists.full > 0 then parts[#parts + 1] = L["%d fully"]:format(resists.full) end
+        if resists.partial > 0 then parts[#parts + 1] = L["%d partly"]:format(resists.partial) end
         lines[#lines + 1] = string.format(L["Resists %s: %s."], ns.SchoolName(school), Join(parts))
     end
-    for _, e in ipairs(ByCount(c.reflect)) do
-        lines[#lines + 1] = string.format(L["Reflects %s spells (x%d)."], ns.SchoolName(e.key), e.n)
+    local _, reflects = KeysByCount(notes.reflect)
+    for _, entry in ipairs(reflects) do
+        lines[#lines + 1] = string.format(L["Reflects %s spells (x%d)."], ns.SchoolName(entry.key), entry.n)
     end
 
-    local deals = {}
-    for _, e in ipairs(ByCount(c.attacks)) do deals[#deals + 1] = ns.SchoolName(e.key) end
+    local deals = KeysByCount(notes.attacks, ns.SchoolName)
     if #deals > 0 then lines[#lines + 1] = L["Deals %s damage."]:format(Join(deals)) end
 
-    local mel = c.melee
-    if mel and (mel.min or mel.gaps >= 3) then
-        local hits = mel.min and (mel.min == mel.max and tostring(mel.min) or string.format("%d-%d", mel.min, mel.max))
-        local every = mel.gaps >= 3 and mel.gapTime / mel.gaps
+    local melee = notes.melee
+    if melee and (melee.min or melee.gaps >= 3) then
+        local hits = melee.min
+            and (melee.min == melee.max and tostring(melee.min) or string.format("%d-%d", melee.min, melee.max))
+        local every = melee.gaps >= 3 and melee.gapTime / melee.gaps
         if hits and every then
             lines[#lines + 1] = string.format(L["Melee hits for %s, about every %.1fs."], hits, every)
         elseif hits then
@@ -344,26 +348,28 @@ function ns.CombatLines(m)
         end
     end
 
-    if c.casts then
-        lines[#lines + 1] = string.format(c.casts == 1 and L["Casts spells (seen %d time)."] or L["Casts spells (seen %d times)."], c.casts)
+    if notes.casts then
+        local template = notes.casts == 1 and L["Casts spells (seen %d time)."] or L["Casts spells (seen %d times)."]
+        lines[#lines + 1] = string.format(template, notes.casts)
     end
     local inflicts = {}
-    for name in pairs(c.inflicts or {}) do inflicts[#inflicts + 1] = name end
+    for name in pairs(notes.inflicts or {}) do inflicts[#inflicts + 1] = name end
     if #inflicts > 0 then
         table.sort(inflicts)
         lines[#lines + 1] = L["Has afflicted you with %s."]:format(Join(inflicts))
     end
 
-    local d = c.defence
-    if d and d.swings >= 20 then
+    local defence = notes.defence
+    if defence and defence.swings >= 20 then
         local parts = {}
-        if (d.dodge or 0) > 0 then parts[#parts + 1] = L["dodges %s"]:format(Pct(d.dodge, d.swings)) end
-        if (d.parry or 0) > 0 then parts[#parts + 1] = L["parries %s"]:format(Pct(d.parry, d.swings)) end
-        if (d.block or 0) > 0 then parts[#parts + 1] = L["blocks %s"]:format(Pct(d.block, d.swings)) end
+        for _, kind in ipairs(DEFENCES) do
+            local count = defence[kind[1]] or 0
+            if count > 0 then parts[#parts + 1] = kind[2]:format(Percent(count, defence.swings)) end
+        end
         if #parts > 0 then
-            lines[#lines + 1] = string.format(L["Against melee it %s (of %d swings)."], Join(parts), d.swings)
+            lines[#lines + 1] = string.format(L["Against melee it %s (of %d swings)."], Join(parts), defence.swings)
         else
-            lines[#lines + 1] = string.format(L["Hasn't dodged, parried or blocked in %d swings."], d.swings)
+            lines[#lines + 1] = string.format(L["Hasn't dodged, parried or blocked in %d swings."], defence.swings)
         end
     end
     return lines

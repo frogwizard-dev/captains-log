@@ -1,13 +1,10 @@
 local _, ns = ...
 local issecret = ns.issecret
 
--- The money ledger: each change in your coin is put down to what was going on at the time (a
--- merchant open, a flight just taken, a corpse being looted...). Income and expense are kept
--- apart, per category, per day (day.ledger) and for all time (db.ledger). day.moneyIn/moneyOut
--- are still kept by Tracker.lua.
---
--- Categories: income  sell, mail, trade, auction, loot, quest, other
---             expense buy, repair, training, flights, mail, trade, auction, quest, other
+-- The money ledger: each change in your coin is put down to what was going on (a merchant open, a
+-- flight just taken, a corpse being looted...), as income (sell, mail, trade, auction, loot, quest,
+-- other) or expense (buy, repair, training, flights, mail, trade, auction, quest, other), per day
+-- (day.ledger) and for all time (db.ledger). Tracker.lua keeps the plain day.moneyIn/moneyOut.
 
 local GRACE = 3 -- seconds a window's context lasts after it closes (trade money lands late)
 
@@ -15,16 +12,16 @@ local open = {}    -- [context] = true while its window is open
 local closed = {}  -- [context] = GetTime() it closed
 local repairCost, repairAt
 
-local function Active(ctx)
-    if open[ctx] then return true end
-    return closed[ctx] and GetTime() - closed[ctx] <= GRACE
+local function Active(context)
+    if open[context] then return true end
+    return closed[context] and GetTime() - closed[context] <= GRACE
 end
 
-local function Window(ctx, showEvent, closeEvent)
-    ns.On(showEvent, function() open[ctx], closed[ctx] = true, nil end)
+local function Window(context, showEvent, closeEvent)
+    ns.On(showEvent, function() open[context], closed[context] = true, nil end)
     ns.On(closeEvent, function()
-        if open[ctx] then closed[ctx] = GetTime() end
-        open[ctx] = nil
+        if open[context] then closed[context] = GetTime() end
+        open[context] = nil
     end)
 end
 
@@ -62,8 +59,8 @@ local function InRepair()
     return ok and not issecret(on) and on
 end
 
-local function Category(income, delta)
-    if not income and repairAt and GetTime() - repairAt <= GRACE and (delta == repairCost or Active("merchant")) then
+local function Category(income, change)
+    if not income and repairAt and GetTime() - repairAt <= GRACE and (change == repairCost or Active("merchant")) then
         repairAt = nil
         return "repair"
     end
@@ -81,9 +78,9 @@ local function Category(income, delta)
     return "other"
 end
 
-local function Add(ledger, side, cat, amount)
-    local t = ns.Sub(ledger, side)
-    t[cat] = (t[cat] or 0) + amount
+local function Add(ledger, side, category, amount)
+    local totals = ns.Sub(ledger, side)
+    totals[category] = (totals[category] or 0) + amount
 end
 
 local lastMoney
@@ -93,10 +90,10 @@ ns.On("PLAYER_MONEY", function()
     if lastMoney and money ~= lastMoney then
         local income = money > lastMoney
         local amount = math.abs(money - lastMoney)
-        local cat = Category(income, amount)
+        local category = Category(income, amount)
         local side = income and "inc" or "exp"
-        Add(ns.db.ledger, side, cat, amount)
-        Add(ns.Sub(ns.Day(), "ledger"), side, cat, amount)
+        Add(ns.db.ledger, side, category, amount)
+        Add(ns.Sub(ns.Day(), "ledger"), side, category, amount)
     end
     lastMoney = money
 end)

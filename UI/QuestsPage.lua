@@ -13,78 +13,76 @@ local FILTERS = {
 }
 local KIND = { world = L["World quest"], bonus = L["Bonus objective"] }
 
-local function Status(q)
-    if q.completed then return "done" end
-    if q.abandoned then return "abandoned" end
+local function Status(quest)
+    if quest.completed then return "done" end
+    if quest.abandoned then return "abandoned" end
     return "open"
 end
 
-local function Title(id, q)
-    return q.title or L["Quest #%s"]:format(id)
+local function Title(id, quest)
+    return quest.title or L["Quest #%s"]:format(id)
 end
 
 local function NpcName(npcID)
-    local n = npcID and ns.db.npcs[npcID]
-    return n and n.name
+    local npc = npcID and ns.db.npcs[npcID]
+    return npc and npc.name
 end
 
 -- Title, zone, giver, or anything in the quest's own text.
-local function Matches(id, q, query)
+local function Matches(id, quest, query)
     if query == "" then return true end
-    for _, s in ipairs({ Title(id, q), q.acceptZone, q.zone, NpcName(q.giver), NpcName(q.turnInNpc), q.text, q.objective }) do
-        if s and s:lower():find(query, 1, true) then return true end
+    for _, text in ipairs({ Title(id, quest), quest.acceptZone, quest.zone, NpcName(quest.giver),
+        NpcName(quest.turnInNpc), quest.text, quest.objective }) do
+        if text and text:lower():find(query, 1, true) then return true end
     end
     return false
 end
 
 function Page:Build(left, right)
-    local W, H = ns.Book.CONTENT_W, ns.Book.CONTENT_H
+    local width, height = ns.Book.CONTENT_W, ns.Book.CONTENT_H
     self.filter, self.query = "all", ""
-    self.sub = ns.Book:Header(left, L["Quest Journal"])
+    self.subtitle = ns.Book:Header(left, L["Quest Journal"])
 
     local search = UI.SearchBox(left, 190, function(text)
         self.query = text:lower()
         self:Render()
     end)
     search:SetPoint("TOPLEFT", 6, -62)
-    local filter = UI.Dropdown(left, 170, FILTERS, function() return self.filter end, function(v)
-        self.filter = v
+    local filter = UI.Dropdown(left, 170, FILTERS, function() return self.filter end, function(status)
+        self.filter = status
         self:Render()
     end)
     filter:SetPoint("TOPRIGHT", 0, -60)
     self.search, self.filterDropdown = search, filter
 
-    self.list = UI.List(left, W, H - 94)
-    self.list.sf:SetPoint("TOPLEFT", 0, -92)
-    self.doc = UI.Doc(right, W, H)
-    self.doc.sf:SetPoint("TOPLEFT")
+    self.list = UI.List(left, width, height - 94)
+    self.list.scroll:SetPoint("TOPLEFT", 0, -92)
+    self.doc = UI.Doc(right, width, height)
+    self.doc.scroll:SetPoint("TOPLEFT")
 end
 
 function Page:Render()
     local quests = ns.db.quests
     local groups = { open = {}, done = {}, abandoned = {} }
-    local xp, money = 0, 0
-    for id, q in pairs(quests) do
-        local status = Status(q)
+    local xp, done, open = 0, 0, 0
+    for id, quest in pairs(quests) do
+        local status = Status(quest)
         if status == "done" then
-            xp, money = xp + (q.xp or 0), money + (q.money or 0)
+            xp, done = xp + (quest.xp or 0), done + 1
+        elseif status == "open" then
+            open = open + 1
         end
-        if (self.filter == "all" or self.filter == status) and Matches(id, q, self.query) then
+        if (self.filter == "all" or self.filter == status) and Matches(id, quest, self.query) then
             table.insert(groups[status], id)
         end
     end
     -- In progress first, then completed, then abandoned; newest first in each.
-    table.sort(groups.open, function(a, b) return (quests[a].accepted or 0) > (quests[b].accepted or 0) end)
-    table.sort(groups.done, function(a, b) return quests[a].completed > quests[b].completed end)
-    table.sort(groups.abandoned, function(a, b) return quests[a].abandoned > quests[b].abandoned end)
+    table.sort(groups.open, function(first, second) return (quests[first].accepted or 0) > (quests[second].accepted or 0) end)
+    table.sort(groups.done, function(first, second) return quests[first].completed > quests[second].completed end)
+    table.sort(groups.abandoned, function(first, second) return quests[first].abandoned > quests[second].abandoned end)
+    self.subtitle:SetText(string.format(L["%d completed  ·  %d in progress  ·  %s xp earned"], done, open, ns.Number(xp)))
 
-    local done, open = 0, 0
-    for _, q in pairs(quests) do
-        if q.completed then done = done + 1 elseif not q.abandoned then open = open + 1 end
-    end
-    self.sub:SetText(string.format(L["%d completed  ·  %d in progress  ·  %s xp earned"], done, open, ns.Number(xp)))
-
-    local items, first = {}, nil
+    local items = {}
     for _, id in ipairs(groups.open) do
         items[#items + 1] = { key = id, left = Title(id, quests[id]), right = L["in progress"], color = UI.ACCENT }
     end
@@ -94,8 +92,7 @@ function Page:Render()
     for _, id in ipairs(groups.abandoned) do
         items[#items + 1] = { key = id, left = Title(id, quests[id]), right = L["abandoned"], color = UI.FADED }
     end
-    first = items[1] and items[1].key
-    if not self.selected or not quests[self.selected] then self.selected = first end
+    if not self.selected or not quests[self.selected] then self.selected = items[1] and items[1].key end
     self.list:SetItems(items, self.selected, function(id)
         self.selected = id
         self:Render()
@@ -105,12 +102,12 @@ end
 
 -- Experience and coin on one line, then the items as an icon grid like a merchant's wares.
 -- Once handed in, the choice you took is marked and the ones you passed over fade.
-function Page:RenderRewards(q)
+function Page:RenderRewards(quest)
     local doc = self.doc
-    local xp, money = q.xp or q.offerXP, q.money or q.offerMoney
-    local any = (xp and xp > 0) or (money and money > 0) or q.items or q.choices
+    local xp, money = quest.xp or quest.offerXP, quest.money or quest.offerMoney
+    local any = (xp and xp > 0) or (money and money > 0) or quest.items or quest.choices
     if not any then return end
-    doc:Heading(q.completed and L["Rewards"] or L["Rewards on offer"])
+    doc:Heading(quest.completed and L["Rewards"] or L["Rewards on offer"])
     local parts = {}
     if xp and xp > 0 then parts[#parts + 1] = L["%s experience"]:format(ns.Number(xp)) end
     if money and money > 0 then parts[#parts + 1] = ns.Money(money) end
@@ -120,17 +117,17 @@ function Page:RenderRewards(q)
         if item.qty > 1 then note = "x" .. item.qty .. (note and ("  ·  " .. note) or "") end
         return { link = item.link, note = note, dim = dim }
     end
-    if q.items then
+    if quest.items then
         local cells = {}
-        for _, item in ipairs(q.items) do cells[#cells + 1] = Cell(item, q.completed and L["received"] or nil) end
+        for _, item in ipairs(quest.items) do cells[#cells + 1] = Cell(item, quest.completed and L["received"] or nil) end
         doc:Gap(2)
         doc:Grid(cells, 2)
     end
-    if q.choices then
-        local chosen = q.completed and q.chose
+    if quest.choices then
+        local chosen = quest.completed and quest.chose
         doc:Faded(chosen and L["You chose:"] or L["Choose one:"])
         local cells = {}
-        for i, item in ipairs(q.choices) do
+        for i, item in ipairs(quest.choices) do
             local mine = chosen == i
             cells[#cells + 1] = Cell(item, mine and L["your choice"] or nil, chosen and not mine)
         end
@@ -143,14 +140,14 @@ end
 ------------------------------------------------------------------------------
 
 -- The map where you've slain most of this quest's creatures.
-local function FoeMap(q)
+local function FoeMap(quest)
     local counts, best, most = {}, nil, 0
     local seen = {}
-    for i in ipairs(q.objectives or {}) do
-        for _, f in ipairs(ns.ObjectiveFoes(q, i)) do
-            if not seen[f.id] then
-                seen[f.id] = true
-                for mapID, spots in pairs(f.mob.spots or {}) do
+    for i in ipairs(quest.objectives or {}) do
+        for _, foe in ipairs(ns.ObjectiveFoes(quest, i)) do
+            if not seen[foe.id] then
+                seen[foe.id] = true
+                for mapID, spots in pairs(foe.mob.spots or {}) do
                     counts[mapID] = (counts[mapID] or 0) + #spots
                     if counts[mapID] > most then best, most = mapID, counts[mapID] end
                 end
@@ -161,15 +158,15 @@ local function FoeMap(q)
 end
 
 local function ShowQuestMap(id, which)
-    local q = ns.db.quests[tonumber(id)]
-    if not q then return end
+    local quest = ns.db.quests[tonumber(id)]
+    if not quest then return end
     local mapID
     if which == "start" then
-        mapID = ns.QuestStart(q)
+        mapID = ns.QuestStart(quest)
     elseif which == "finish" then
-        mapID = ns.QuestFinish(q)
+        mapID = ns.QuestFinish(quest)
     else
-        mapID = FoeMap(q)
+        mapID = FoeMap(quest)
     end
     -- Each button pins only what it sits beside: the people, or the creatures.
     ns.MapPins.Show(which == "foes" and "questfoes" or "questgiver", tonumber(id), mapID)
@@ -194,9 +191,9 @@ UI.RegisterLink("qmap", ShowQuestMap, function(_, which) return L["Show on map"]
 --   Quest giver: Novice Elreth                    [Map] [Waypoint]
 --   Tirisfal Glades
 function Page:PlaceRow(id, label, npcID, zone, which, mapID, x, y)
-    local n = npcID and ns.db.npcs[npcID]
-    local who = (n and n.name) and UI.NpcLink(npcID) or "|cff6b5d4f" .. L["not recorded"] .. "|r"
-    zone = (n and n.zone) or zone
+    local npc = npcID and ns.db.npcs[npcID]
+    local who = (npc and npc.name) and UI.NpcLink(npcID) or "|cff6b5d4f" .. L["not recorded"] .. "|r"
+    zone = (npc and npc.zone) or zone
     local text = L["|cff6b5d4f%s:|r  %s"]:format(label, who)
     if zone then text = text .. "\n|cff6b5d4fin|r " .. UI.ZoneLink(zone) end
     local actions = UI.MapActions(mapID and function() ShowQuestMap(id, which) end, mapID, x, y, MapTip(which))
@@ -205,14 +202,14 @@ function Page:PlaceRow(id, label, npcID, zone, which, mapID, x, y)
 end
 
 -- Under each objective, the creatures it's about, each opening its bestiary page.
-function Page:ObjectiveFoes(q, index)
-    local foes = ns.ObjectiveFoes(q, index)
+function Page:ObjectiveFoes(quest, index)
+    local foes = ns.ObjectiveFoes(quest, index)
     if #foes == 0 then return false end
     local slay, drop = {}, {}
-    for _, f in ipairs(foes) do
-        local link = UI.MobLink(f.id, f.mob.name)
-        if f.how == "drops" then
-            if #drop < 4 then drop[#drop + 1] = link .. string.format(" (%d%%)", math.floor(f.rate * 100 + 0.5)) end
+    for _, foe in ipairs(foes) do
+        local link = UI.MobLink(foe.id, foe.mob.name)
+        if foe.how == "drops" then
+            if #drop < 4 then drop[#drop + 1] = link .. string.format(" (%d%%)", math.floor(foe.rate * 100 + 0.5)) end
         elseif #slay < 4 then
             slay[#slay + 1] = link
         end
@@ -226,85 +223,84 @@ function Page:RenderQuest(id)
     local doc = self.doc
     doc:Clear("quest:" .. tostring(id))
     ns.Book:BackLink(doc)
-    local q = id and ns.db.quests[id]
-    if not q then
+    local quest = id and ns.db.quests[id]
+    if not quest then
         self.title = nil
         doc:Title(next(ns.db.quests) and L["Nothing matches"] or L["No quests yet"])
         doc:Faded(L["Quests appear here as you accept and complete them."])
         doc:Finish()
         return
     end
-    self.title = Title(id, q)
+    self.title = Title(id, quest)
     doc:Title(self.title)
 
     local meta = {}
-    if q.questLevel then meta[#meta + 1] = L["Level %s"]:format(q.questLevel) end
-    if q.tag then meta[#meta + 1] = q.tag end
-    if KIND[q.kind] and q.tag ~= KIND[q.kind] then meta[#meta + 1] = KIND[q.kind] end
+    if quest.questLevel then meta[#meta + 1] = L["Level %s"]:format(quest.questLevel) end
+    if quest.tag then meta[#meta + 1] = quest.tag end
+    if KIND[quest.kind] and quest.tag ~= KIND[quest.kind] then meta[#meta + 1] = KIND[quest.kind] end
     if #meta > 0 then doc:Faded(table.concat(meta, "  ·  ")) end
     doc:Gap(4)
 
     -- Where it stands: the state in its colour, then when and at what level.
-    if q.completed then
-        doc:Line(string.format(L["|cff2f6b1fCompleted|r  %s, at level %d%s"], ns.Date(q.completed), q.level or 0,
-            q.accepted and string.format(L["  |cff6b5d4f(took %s)|r"], ns.Duration(q.completed - q.accepted)) or ""))
-    elseif q.abandoned then
-        doc:Line(string.format(L["|cff7a1f0dAbandoned|r  %s"], ns.Date(q.abandoned)))
-    elseif q.accepted then
-        doc:Line(string.format(L["|cff1d4f8cIn progress|r  accepted %s, at level %d"], ns.Ago(q.accepted), q.acceptLevel or 0))
+    if quest.completed then
+        doc:Line(string.format(L["|cff2f6b1fCompleted|r  %s, at level %d%s"], ns.Date(quest.completed), quest.level or 0,
+            quest.accepted and string.format(L["  |cff6b5d4f(took %s)|r"], ns.Duration(quest.completed - quest.accepted)) or ""))
+    elseif quest.abandoned then
+        doc:Line(string.format(L["|cff7a1f0dAbandoned|r  %s"], ns.Date(quest.abandoned)))
+    elseif quest.accepted then
+        doc:Line(string.format(L["|cff1d4f8cIn progress|r  accepted %s, at level %d"], ns.Ago(quest.accepted), quest.acceptLevel or 0))
     end
-    if (q.timesDone or 0) > 1 then doc:Faded(string.format(L["Completed %d times in all."], q.timesDone)) end
+    if (quest.timesDone or 0) > 1 then doc:Faded(string.format(L["Completed %d times in all."], quest.timesDone)) end
 
     -- Who to see and where, each with the book's map and the game's waypoint as buttons.
-    local sm, sx, sy = ns.QuestStart(q)
-    local fm, fx, fy = ns.QuestFinish(q)
-    local hasStart = q.giver or q.acceptZone or sm
-    local hasFinish = q.completed and (q.turnInNpc or q.zone or fm)
+    local startMap, startX, startY = ns.QuestStart(quest)
+    local finishMap, finishX, finishY = ns.QuestFinish(quest)
+    local hasStart = quest.giver or quest.acceptZone or startMap
+    local hasFinish = quest.completed and (quest.turnInNpc or quest.zone or finishMap)
     if hasStart or hasFinish then
         doc:Heading(L["Where"])
         doc:Gap(2)
         if hasStart then
-            self:PlaceRow(id, L["Quest giver"], q.giver, q.acceptZone, "start", sm, sx, sy)
+            self:PlaceRow(id, L["Quest giver"], quest.giver, quest.acceptZone, "start", startMap, startX, startY)
         end
         if hasFinish then
-            self:PlaceRow(id, L["Handed in to"], q.turnInNpc, q.zone, "finish", fm, fx, fy)
+            self:PlaceRow(id, L["Handed in to"], quest.turnInNpc, quest.zone, "finish", finishMap, finishX, finishY)
         end
     end
 
-    if q.objective or q.objectives then
+    if quest.objective or quest.objectives then
         -- The map of this quest's creatures sits on the heading, beside what it's about.
-        local foeMap = FoeMap(q)
+        local foeMap = FoeMap(quest)
         doc:Heading(L["Objectives"], foeMap and UI.MapActions(function() ShowQuestMap(id, "foes") end,
             nil, nil, nil, MapTip("foes")) or nil)
-        if q.objective then doc:Line(q.objective) end
-        if q.objectives then
+        if quest.objective then doc:Line(quest.objective) end
+        if quest.objectives then
             doc:Gap(2)
-            for i, o in ipairs(q.objectives) do
+            for i, objective in ipairs(quest.objectives) do
                 -- Ticked when done; still to do shows the waiting mark, abandoned a cross.
-                local mark = o.done or nil
-                if not o.done and q.abandoned then mark = false end
-                doc:Check(o.text, mark)
-                self:ObjectiveFoes(q, i)
+                local mark = objective.done or nil
+                if not objective.done and quest.abandoned then mark = false end
+                doc:Check(objective.text, mark)
+                self:ObjectiveFoes(quest, i)
             end
         end
     end
 
-    self:RenderRewards(q)
+    self:RenderRewards(quest)
 
-    if q.text then
+    if quest.text then
         doc:Heading(L["The tale"])
-        doc:Line(q.text)
+        doc:Line(quest.text)
     end
 
-    if q.finishText then
+    if quest.finishText then
         doc:Heading(L["On handing in"])
-        doc:Line(q.finishText)
+        doc:Line(quest.finishText)
     end
 
-    if not q.text and not q.objective then
+    if not quest.text and not quest.objective then
         doc:Gap(6)
         doc:Faded(L["The quest's own words weren't written down; quests taken up from now on keep them."])
     end
     doc:Finish()
 end
-

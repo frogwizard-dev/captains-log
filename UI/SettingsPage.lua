@@ -13,67 +13,72 @@ local QUALITIES = {
     { 4, L["Epic and better"] },
 }
 
-function Page:Build(left, right)
-    local s = ns.db.settings
-    local sub = ns.Book:Header(left, L["Settings"])
-    sub:SetText(L["How the log keeps its records"])
-
-    local y = -70
-    local function place(w, h, x)
-        w:SetPoint("TOPLEFT", x or 0, y)
-        y = y - h
+-- Places widgets down a page from y, each `height` below the last.
+local function Placer(y)
+    return function(widget, height, x)
+        widget:SetPoint("TOPLEFT", x or 0, y)
+        y = y - height
+        return y
     end
-    place(UI.Checkbox(left, L["Show kill counts on creature tooltips"],
-        function() return s.tooltip end, function(v) s.tooltip = v end), 28)
-    place(UI.Checkbox(left, L["Announce new bestiary entries in chat"],
-        function() return s.announce end, function(v) s.announce = v end), 28)
-    place(UI.Checkbox(left, L["Kill debug messages (which signal counted it)"],
-        function() return s.debug end, function(v) s.debug = v end), 28)
-    place(UI.Checkbox(left, L["Add every screenshot to the journal"],
-        function() return s.photosAll end, function(v) s.photosAll = v end), 28)
-    place(UI.Checkbox(left, L["Hide the interface when taking a picture"],
-        function() return s.photoClean end, function(v) s.photoClean = v end), 28)
-    place(UI.Checkbox(left, L["Show my screenshots (after \"Set up pictures\")"],
-        function() return s.photosShow end, function(v)
-            s.photosShow = v
+end
+
+function Page:Build(left, right)
+    local settings = ns.db.settings
+    local subtitle = ns.Book:Header(left, L["Settings"])
+    subtitle:SetText(L["How the log keeps its records"])
+
+    local Place = Placer(-70)
+    Place(UI.Checkbox(left, L["Show kill counts on creature tooltips"],
+        function() return settings.tooltip end, function(on) settings.tooltip = on end), 28)
+    Place(UI.Checkbox(left, L["Announce new bestiary entries in chat"],
+        function() return settings.announce end, function(on) settings.announce = on end), 28)
+    Place(UI.Checkbox(left, L["Kill debug messages (which signal counted it)"],
+        function() return settings.debug end, function(on) settings.debug = on end), 28)
+    Place(UI.Checkbox(left, L["Add every screenshot to the journal"],
+        function() return settings.photosAll end, function(on) settings.photosAll = on end), 28)
+    Place(UI.Checkbox(left, L["Hide the interface when taking a picture"],
+        function() return settings.photoClean end, function(on) settings.photoClean = on end), 28)
+    Place(UI.Checkbox(left, L["Show my screenshots (after \"Set up pictures\")"],
+        function() return settings.photosShow end, function(on)
+            settings.photosShow = on
             ns.Refresh()
         end), 30)
     local setup = UI.Button(left, L["Set up pictures..."], 220)
-    place(setup, 40, 4)
+    Place(setup, 40, 4)
     setup:SetScript("OnClick", function() ns.ShowPictureSetup() end)
 
-    place(UI.Checkbox(left, L["Write down what people say, and the replies I pick"],
-        function() return s.gossip end, function(v) s.gossip = v end), 28)
-    place(UI.Checkbox(left, L["Keep a fishing journal (what you catch, and where)"],
-        function() return s.fishing end, function(v) s.fishing = v end), 28)
-    place(UI.Checkbox(left, L["Show my fishing spots on the world map"],
-        function() return s.fishPins end, function(v)
-            s.fishPins = v
+    Place(UI.Checkbox(left, L["Write down what people say, and the replies I pick"],
+        function() return settings.gossip end, function(on) settings.gossip = on end), 28)
+    Place(UI.Checkbox(left, L["Keep a fishing journal (what you catch, and where)"],
+        function() return settings.fishing end, function(on) settings.fishing = on end), 28)
+    Place(UI.Checkbox(left, L["Show my fishing spots on the world map"],
+        function() return settings.fishPins end, function(on)
+            settings.fishPins = on
             ns.MapPins.Refresh()
         end), 30)
 
     local label = UI.Text(left, 12)
     label:SetText(L["Treasures kept in the daily log:"])
-    place(label, 22, 4)
-    place(UI.Dropdown(left, 220, QUALITIES, function() return s.lootQuality end,
-        function(v) s.lootQuality = v end), 40, 4)
+    Place(label, 22, 4)
+    Place(UI.Dropdown(left, 220, QUALITIES, function() return settings.lootQuality end,
+        function(quality) settings.lootQuality = quality end), 40, 4)
 
     -- Everything the Map buttons put on the game's world map, gone in one click.
     local unpin = UI.Button(left, L["Remove the book's map pins"], 220)
-    place(unpin, 32, 4)
+    Place(unpin, 32, 4)
     unpin:SetScript("OnClick", function() ns.MapPins.Clear() end)
 
     -- Two clicks to wipe, so a stray click can't erase the journal.
     local reset = UI.Button(left, L["Erase this character's log"], 220)
-    place(reset, 30, 4)
+    Place(reset, 30, 4)
     local armed = false
-    reset:SetScript("OnClick", function(b)
+    reset:SetScript("OnClick", function(button)
         if not armed then
             armed = true
-            b:SetText(L["Click again to erase"])
+            button:SetText(L["Click again to erase"])
             C_Timer.After(4, function()
                 armed = false
-                b:SetText(L["Erase this character's log"])
+                button:SetText(L["Erase this character's log"])
             end)
             return
         end
@@ -82,37 +87,33 @@ function Page:Build(left, right)
         end
         ns.db.activeRun = nil
         armed = false
-        b:SetText(L["Erase this character's log"])
+        button:SetText(L["Erase this character's log"])
         ns.Print(L["Log erased."])
         ns.Refresh()
     end)
 
     -- The journey map (the left page is full, so its settings head the right one).
-    local ry = 0
-    local function placeRight(w, h, x)
-        w:SetPoint("TOPLEFT", x or 0, ry)
-        ry = ry - h
-    end
-    local jtitle = UI.Text(right, 15, UI.ACCENT, UI.HEADING_FONT)
-    jtitle:SetText(L["Journey map"])
-    placeRight(jtitle, 22, 2)
-    placeRight(UI.Checkbox(right, L["Show the journey map's button on the world map"],
-        function() return s.journeyButton ~= false end, function(v)
-            s.journeyButton = v
+    local PlaceRight = Placer(0)
+    local journeyTitle = UI.Text(right, 15, UI.ACCENT, UI.HEADING_FONT)
+    journeyTitle:SetText(L["Journey map"])
+    PlaceRight(journeyTitle, 22, 2)
+    PlaceRight(UI.Checkbox(right, L["Show the journey map's button on the world map"],
+        function() return settings.journeyButton ~= false end, function(on)
+            settings.journeyButton = on
             if ns.JourneyMap then ns.JourneyMap.UpdateToggle() end
         end), 28)
     local keep = UI.Text(right, 12)
     keep:SetText(L["Keep detailed routes for (older days keep a simpler line):"])
-    placeRight(keep, 22, 4)
+    PlaceRight(keep, 22, 4)
     local KEEP = { { 0, L["Forever"] } }
-    for _, n in ipairs({ 7, 14, 30, 60, 90, 180, 365 }) do KEEP[#KEEP + 1] = { n, L["%d days"]:format(n) } end
-    placeRight(UI.Dropdown(right, 220, KEEP, function() return s.pathKeepDays or 0 end, function(v)
-        s.pathKeepDays = v
+    for _, days in ipairs({ 7, 14, 30, 60, 90, 180, 365 }) do KEEP[#KEEP + 1] = { days, L["%d days"]:format(days) } end
+    local rightY = PlaceRight(UI.Dropdown(right, 220, KEEP, function() return settings.pathKeepDays or 0 end, function(days)
+        settings.pathKeepDays = days
         if ns.Journey and ns.Journey.Prune then pcall(ns.Journey.Prune) end
     end), 36, 4)
 
-    self.doc = UI.Doc(right, ns.Book.CONTENT_W, ns.Book.CONTENT_H + ry)
-    self.doc.sf:SetPoint("TOPLEFT", 0, ry)
+    self.doc = UI.Doc(right, ns.Book.CONTENT_W, ns.Book.CONTENT_H + rightY)
+    self.doc.scroll:SetPoint("TOPLEFT", 0, rightY)
 end
 
 ------------------------------------------------------------------------------
@@ -133,8 +134,8 @@ local function CopyBox(page, text, width)
     box:SetText(text)
     box:SetCursorPosition(0)
     box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
-    box:SetScript("OnTextChanged", function(self, user)
-        if user then
+    box:SetScript("OnTextChanged", function(self, userInput)
+        if userInput then
             self:SetText(text)
             self:HighlightText()
         end
@@ -144,37 +145,37 @@ local function CopyBox(page, text, width)
 end
 
 local function BuildSetup()
-    local f = CreateFrame("Frame", "CaptainsLogPictureSetup", UIParent, "BackdropTemplate")
-    f:SetSize(480, 400)
-    f:SetPoint("CENTER")
-    f:SetFrameStrata("DIALOG")
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
-    f:SetBackdrop({
+    local window = CreateFrame("Frame", "CaptainsLogPictureSetup", UIParent, "BackdropTemplate")
+    window:SetSize(480, 400)
+    window:SetPoint("CENTER")
+    window:SetFrameStrata("DIALOG")
+    window:SetMovable(true)
+    window:EnableMouse(true)
+    window:RegisterForDrag("LeftButton")
+    window:SetScript("OnDragStart", window.StartMoving)
+    window:SetScript("OnDragStop", window.StopMovingOrSizing)
+    window:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 16,
         insets = { left = 4, right = 4, top = 4, bottom = 4 },
     })
-    f:SetBackdropColor(0.27, 0.15, 0.07, 1)
-    f:SetBackdropBorderColor(0.78, 0.62, 0.32, 1)
+    window:SetBackdropColor(0.27, 0.15, 0.07, 1)
+    window:SetBackdropBorderColor(0.78, 0.62, 0.32, 1)
     tinsert(UISpecialFrames, "CaptainsLogPictureSetup")
-    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    local close = CreateFrame("Button", nil, window, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", 2, 2)
 
-    local page = UI.Page(f)
+    local page = UI.Page(window)
     page:SetPoint("TOPLEFT", 12, -12)
     page:SetPoint("BOTTOMRIGHT", -12, 12)
 
     local title = UI.Text(page, 20, UI.ACCENT, UI.HEADING_FONT)
     title:SetPoint("TOPLEFT", 18, -16)
     title:SetText(L["Set up pictures"])
-    f.status = UI.Text(page, 11, UI.FADED)
-    f.status:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 2, -2)
+    window.status = UI.Text(page, 11, UI.FADED)
+    window.status:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 2, -2)
 
     local body = UI.Text(page, 12)
-    body:SetPoint("TOPLEFT", f.status, "BOTTOMLEFT", 0, -10)
+    body:SetPoint("TOPLEFT", window.status, "BOTTOMLEFT", 0, -10)
     body:SetWidth(420)
     body:SetSpacing(3)
     body:SetText(L["The book can show your screenshots, but the game only reads files inside its own folders, and addons can't run anything on your PC. So there's one step outside the game, once:\n\n1.  Download |cff7a1f0dSet up pictures.bat|r: copy this link into your browser and press the download button at the top right of the file."])
@@ -208,13 +209,13 @@ local function BuildSetup()
     done:SetPoint("BOTTOMRIGHT", -16, 14)
     done:SetScript("OnClick", function()
         ns.db.settings.photosShow = true
-        f:Hide()
+        window:Hide()
         ns.Refresh()
     end)
     local later = UI.Button(page, L["Not now"], 100, 24)
     later:SetPoint("RIGHT", done, "LEFT", -8, 0)
-    later:SetScript("OnClick", function() f:Hide() end)
-    return f
+    later:SetScript("OnClick", function() window:Hide() end)
+    return window
 end
 
 function ns.ShowPictureSetup()
@@ -228,14 +229,14 @@ end
 function Page:Render()
     local db = ns.db
     local days, played, kills = 0, 0, 0
-    for _, d in pairs(db.days) do
+    for _, day in pairs(db.days) do
         days = days + 1
-        played = played + d.played
-        kills = kills + d.kills
+        played = played + day.played
+        kills = kills + day.kills
     end
     local mobs, quests, zones = 0, 0, 0
     for _ in pairs(db.mobs) do mobs = mobs + 1 end
-    for _, q in pairs(db.quests) do if q.completed then quests = quests + 1 end end
+    for _, quest in pairs(db.quests) do if quest.completed then quests = quests + 1 end end
     for _ in pairs(db.zones) do zones = zones + 1 end
 
     local doc = self.doc
@@ -247,7 +248,7 @@ function Page:Render()
     doc:Line(L["Bestiary entries: %s"]:format(mobs))
     doc:Line(L["Quests completed: %s"]:format(quests))
     doc:Line(L["Lands visited: %s"]:format(zones))
-    local fishing = ns.FishingData()
+    local fishing = ns.FishingJournal()
     if (fishing.n or 0) > 0 then doc:Line(L["Fish caught: %s"]:format(ns.Number(fishing.n))) end
     doc:Line(L["Deaths: %s"]:format(#db.deaths))
     doc:Gap(12)

@@ -2,12 +2,10 @@ local _, ns = ...
 local L = ns.L
 local issecret = ns.issecret
 
--- There's no combat log on this client, so kills are pieced together from three signals:
---   death: a mob you or your group tagged is seen dying (target, focus, mouseover, nameplates)
---   xp:    "X dies, you gain N experience." in chat
---   loot:  opening a corpse (also records what it dropped)
--- Each kill is counted once: a death and its XP message pair up within WINDOW seconds, and a
--- kill counted from XP alone pairs up with its corpse if you loot it within LOOT_WINDOW.
+-- There's no combat log on this client, so kills are pieced together from three signals: a tagged
+-- mob seen dying (target, focus, mouseover, nameplates), "X dies, you gain N experience." in chat,
+-- and opening its corpse (which also records the drops). Each kill counts once: a death and its XP
+-- message pair up within WINDOW seconds, an XP-only kill and its corpse within LOOT_WINDOW.
 
 local WINDOW = 3
 local LOOT_WINDOW = 180
@@ -20,11 +18,11 @@ local deathsByName = {} -- name -> times of kills counted from a death, awaiting
 local xpPending = {}    -- name -> times of XP messages awaiting a death
 local xpOnly = {}       -- name -> times of kills counted from XP alone, awaiting a corpse
 local nameToID = {}     -- name -> npcID, to resolve XP messages
-local guidEvents = {}   -- guid -> its timeline kill entry, so loot can be attached to it
+local killLines = {}    -- guid -> its timeline kill line, so loot can be attached to it
 
-local function Push(tbl, name, now)
-    tbl[name] = tbl[name] or {}
-    table.insert(tbl[name], now)
+local function Push(timesByName, name, now)
+    timesByName[name] = timesByName[name] or {}
+    table.insert(timesByName[name], now)
 end
 
 -- Removes the oldest entry still inside the window; true if there was one.
@@ -46,65 +44,69 @@ end
 
 local MAX_EVENTS = 1000
 
-local function Log(kind, data)
+local function Log(kind, line)
     local events = ns.Day().events
     if #events >= MAX_EVENTS then return end
-    data.k, data.t = kind, time()
+    line.k, line.t = kind, time()
     -- Where it happened, in the journey's coordinates (Journey.lua): pi instance, py north,
     -- px west (yards), pm the zone's map. Left out where positions are hidden.
-    if ns.Journey and ns.Journey.Here and data.pi == nil then
-        local inst, north, west, map = ns.Journey.Here()
-        if inst then data.pi, data.py, data.px, data.pm = inst, north, west, map end
+    if ns.Journey and ns.Journey.Here and line.pi == nil then
+        local instance, north, west, map = ns.Journey.Here()
+        if instance then line.pi, line.py, line.px, line.pm = instance, north, west, map end
     end
-    table.insert(events, data)
+    table.insert(events, line)
     ns.Refresh()
-    return data
+    return line
 end
 ns.Log = Log
 
--- Repeat kills of the same creature within two minutes share one line ("x4").
-local function LogKill(id, name, classification, guid)
+-- The day's latest timeline line, if it's of this kind and its `field` time (t) is recent.
+local function Recent(kind, seconds, field)
     local events = ns.Day().events
     local last = events[#events]
-    local ev
-    if last and last.k == "kill" and last.id == id and time() - last.last < 120 then
-        last.n = last.n + 1
-        last.last = time()
-        ev = last
+    if last and last.k == kind and time() - last[field or "t"] < seconds then return last end
+end
+
+-- Repeat kills of the same creature within two minutes share one line ("x4").
+local function LogKill(id, name, classification, guid)
+    local line = Recent("kill", 120, "last")
+    if line and line.id == id then
+        line.n = line.n + 1
+        line.last = time()
         ns.Refresh()
     else
-        ev = Log("kill", { id = id, name = name, classification = classification, n = 1, last = time() })
+        line = Log("kill", { id = id, name = name, classification = classification, n = 1, last = time() })
     end
     if ns.Count then ns.Count("kills") end
-    if guid and ev then guidEvents[guid] = ev end
+    if guid and line then killLines[guid] = line end
 end
 
 -- Puts a corpse's loot on the kill line it came from (or the latest kill of that creature).
 local function AttachLoot(guid, id, items)
     if #items == 0 then return end
-    local ev = guidEvents[guid]
-    if not ev then
+    local line = killLines[guid]
+    if not line then
         local events = ns.Day().events
         for i = #events, math.max(1, #events - 30), -1 do
             if events[i].k == "kill" and events[i].id == id then
-                ev = events[i]
+                line = events[i]
                 break
             end
         end
     end
-    if not ev then return end
-    ev.loot = ev.loot or {}
+    if not line then return end
+    line.loot = line.loot or {}
     for _, item in ipairs(items) do
         local merged = false
-        for _, l in ipairs(ev.loot) do
-            if l.itemID == item.itemID then
-                l.qty = l.qty + item.qty
+        for _, held in ipairs(line.loot) do
+            if held.itemID == item.itemID then
+                held.qty = held.qty + item.qty
                 merged = true
                 break
             end
         end
         if not merged then
-            table.insert(ev.loot, { itemID = item.itemID, link = item.link, qty = item.qty })
+            table.insert(line.loot, { itemID = item.itemID, link = item.link, qty = item.qty })
         end
     end
     ns.Refresh()
@@ -112,10 +114,9 @@ end
 
 -- Several first meetings in quick succession (a pack coming into view) share one line.
 local function LogMeet(name)
-    local events = ns.Day().events
-    local last = events[#events]
-    if last and last.k == "meet" and time() - last.t < 60 then
-        table.insert(last.names, name)
+    local line = Recent("meet", 60)
+    if line then
+        table.insert(line.names, name)
         ns.Refresh()
     else
         Log("meet", { names = { name } })
@@ -124,21 +125,16 @@ end
 
 -- Where you stood at the kill, per map, for the bestiary's hunting map.
 local MAX_SPOTS = 60
-local function RecordSpot(m)
-    local ok, mapID = pcall(C_Map.GetBestMapForUnit, "player")
-    if not ok or issecret(mapID) or not mapID then return end
-    local ok2, pos = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
-    if not ok2 or not pos then return end
-    local x, y = pos:GetXY()
-    if issecret(x) or issecret(y) or not x then return end
-    m.spots = m.spots or {}
-    local list = m.spots[mapID] or {}
-    m.spots[mapID] = list
-    local spot = { math.floor(x * 1000 + 0.5) / 1000, math.floor(y * 1000 + 0.5) / 1000 }
+local function RecordSpot(mob)
+    local mapID, x, y = ns.Position(true)
+    if not mapID then return end
+    mob.spots = mob.spots or {}
+    local list = mob.spots[mapID] or {}
+    mob.spots[mapID] = list
     if #list < MAX_SPOTS then
-        table.insert(list, spot)
+        table.insert(list, { x, y })
     else
-        list[math.random(MAX_SPOTS)] = spot
+        list[math.random(MAX_SPOTS)] = { x, y }
     end
 end
 
@@ -147,39 +143,38 @@ end
 ------------------------------------------------------------------------------
 
 local function ZoneRecord(name)
-    local z = ns.db.zones[name]
-    if not z then
-        z = { first = time(), level = UnitLevel("player"), seconds = 0, kills = 0, quests = 0, deaths = 0 }
-        ns.db.zones[name] = z
+    local record = ns.db.zones[name]
+    if not record then
+        record = { first = time(), level = UnitLevel("player"), seconds = 0, kills = 0, quests = 0, deaths = 0 }
+        ns.db.zones[name] = record
         table.insert(ns.Day().zones, name)
         ns.Refresh()
     end
-    return z
+    return record
 end
 ns.ZoneRecord = ZoneRecord
 
--- A name for an NPC ID from the client's creature cache, read off a unit-hyperlink tooltip.
--- Dungeons hide enemy names from addons, so mobs met there are first recorded by ID (from their
--- loot) and named this way. Nil if the client hasn't cached that creature yet.
+-- An NPC ID's name from the creature cache, off a unit-link tooltip: dungeons hide enemy names, so
+-- mobs met there are recorded by ID (from their loot) and named this way. Nil until it's cached.
 function ns.CreatureName(id)
     if type(id) ~= "number" or not (C_TooltipInfo and C_TooltipInfo.GetHyperlink) then return end
     local ok, name = pcall(function()
-        local data = C_TooltipInfo.GetHyperlink(("unit:Creature-0-0-0-0-%d-0000000000"):format(id))
-        return data and data.lines and data.lines[1] and data.lines[1].leftText
+        local tooltip = C_TooltipInfo.GetHyperlink(("unit:Creature-0-0-0-0-%d-0000000000"):format(id))
+        return tooltip and tooltip.lines and tooltip.lines[1] and tooltip.lines[1].leftText
     end)
     if not ok or issecret(name) or not name or name == "" then return end
     return name
 end
 
 local function Mob(id, name)
-    local m = ns.db.mobs[id]
-    if not m then
+    local mob = ns.db.mobs[id]
+    if not mob then
         name = name or ns.CreatureName(id)
-        m = {
+        mob = {
             name = name, kills = 0, killedMe = 0, looted = 0, drops = {}, zones = {},
             firstSeen = time(), firstZone = ns.Zone(), firstLevel = UnitLevel("player"),
         }
-        ns.db.mobs[id] = m
+        ns.db.mobs[id] = mob
         local day = ns.Day()
         day.discovered = day.discovered + 1
         if ns.db.settings.announce and name then
@@ -188,19 +183,18 @@ local function Mob(id, name)
         if name and type(id) == "number" then LogMeet(name) end
         ns.Refresh()
     end
-    if name and not m.name then m.name = name end
-    return m
+    if name and not mob.name then mob.name = name end
+    return mob
 end
 ns.Mob = Mob
 
--- A kill counted from its XP message before the mob's ID was known (in dungeons the game hides
--- creatures' IDs) lives under "n:Name", in the bestiary and in the dungeon run's tally; fold it
--- into the real entry once we learn the ID.
+-- A kill counted from its XP message before the mob's ID was known (dungeons hide it) lives under
+-- "n:Name", in the bestiary and the run's tally, until the ID turns up and it joins the real entry.
 local function MergeRuns(key, id)
     for _, run in ipairs(ns.db.runs or {}) do
-        local n = run.mobs and run.mobs[key]
-        if n then
-            run.mobs[id] = (run.mobs[id] or 0) + n
+        local kills = run.mobs and run.mobs[key]
+        if kills then
+            run.mobs[id] = (run.mobs[id] or 0) + kills
             run.mobs[key] = nil
         end
     end
@@ -211,16 +205,16 @@ local function MergeNamed(name, id)
     MergeRuns(key, id)
     local old = ns.db.mobs[key]
     if not old then return end
-    local m = Mob(id, name)
-    m.kills = m.kills + old.kills
-    m.lastKill = math.max(m.lastKill or 0, old.lastKill or 0)
-    for zone, n in pairs(old.zones) do
-        m.zones[zone] = (m.zones[zone] or 0) + n
+    local mob = Mob(id, name)
+    mob.kills = mob.kills + old.kills
+    mob.lastKill = math.max(mob.lastKill or 0, old.lastKill or 0)
+    for zone, kills in pairs(old.zones) do
+        mob.zones[zone] = (mob.zones[zone] or 0) + kills
     end
     for mapID, spots in pairs(old.spots or {}) do
-        m.spots = m.spots or {}
-        m.spots[mapID] = m.spots[mapID] or {}
-        for _, spot in ipairs(spots) do table.insert(m.spots[mapID], spot) end
+        mob.spots = mob.spots or {}
+        mob.spots[mapID] = mob.spots[mapID] or {}
+        for _, spot in ipairs(spots) do table.insert(mob.spots[mapID], spot) end
     end
     ns.db.mobs[key] = nil
 end
@@ -229,11 +223,11 @@ end
 -- Returns true if any were named.
 function ns.FillNames()
     local named = false
-    for id, m in pairs(ns.db.mobs) do
-        if not m.name and type(id) == "number" then
+    for id, mob in pairs(ns.db.mobs) do
+        if not mob.name and type(id) == "number" then
             local name = ns.CreatureName(id)
             if name then
-                m.name = name
+                mob.name = name
                 if not nameToID[name] then MergeNamed(name, id) end
                 nameToID[name] = id
                 named = true
@@ -244,18 +238,18 @@ function ns.FillNames()
 end
 
 local function Record(id, name, source, guid)
-    local m = Mob(id, name)
-    m.kills = m.kills + 1
-    m.lastKill = time()
-    RecordSpot(m)
-    if ns.Moments then pcall(ns.Moments.Kill, id, m.name or name) end
-    LogKill(id, m.name or name, m.classification, guid)
+    local mob = Mob(id, name)
+    mob.kills = mob.kills + 1
+    mob.lastKill = time()
+    RecordSpot(mob)
+    if ns.Moments then pcall(ns.Moments.Kill, id, mob.name or name) end
+    LogKill(id, mob.name or name, mob.classification, guid)
 
     local zone = ns.Zone()
     if zone then
-        m.zones[zone] = (m.zones[zone] or 0) + 1
-        local z = ZoneRecord(zone)
-        z.kills = z.kills + 1
+        mob.zones[zone] = (mob.zones[zone] or 0) + 1
+        local record = ZoneRecord(zone)
+        record.kills = record.kills + 1
     end
 
     local day = ns.Day()
@@ -266,16 +260,16 @@ local function Record(id, name, source, guid)
         run.mobs = run.mobs or {}
         run.mobs[id] = (run.mobs[id] or 0) + 1
     end
-    if m.classification and NOTABLE[m.classification] then
-        local n = day.notable[id]
-        if not n then
-            n = { name = m.name, classification = m.classification, count = 0, first = time() }
-            day.notable[id] = n
+    if mob.classification and NOTABLE[mob.classification] then
+        local notable = day.notable[id]
+        if not notable then
+            notable = { name = mob.name, classification = mob.classification, count = 0, first = time() }
+            day.notable[id] = notable
         end
-        n.count = n.count + 1
+        notable.count = notable.count + 1
     end
 
-    ns.Debug(string.format("Kill: %s (%s) - %d total", m.name or "?", source, m.kills))
+    ns.Debug(string.format("Kill: %s (%s) - %d total", mob.name or "?", source, mob.kills))
     ns.Refresh()
 end
 
@@ -296,7 +290,7 @@ local function Discover(unit)
 
     local name = UnitName(unit)
     if issecret(name) then name = nil end
-    local m = Mob(id, name)
+    local mob = Mob(id, name)
     if name then
         if not nameToID[name] then MergeNamed(name, id) end
         nameToID[name] = id
@@ -304,13 +298,13 @@ local function Discover(unit)
 
     local level = UnitLevel(unit)
     if not issecret(level) and level and level > 0 then
-        m.minLevel = math.min(m.minLevel or level, level)
-        m.maxLevel = math.max(m.maxLevel or level, level)
+        mob.minLevel = math.min(mob.minLevel or level, level)
+        mob.maxLevel = math.max(mob.maxLevel or level, level)
     end
-    local cls = UnitClassification(unit)
-    if not issecret(cls) and cls then m.classification = cls end
-    local ctype = UnitCreatureType(unit)
-    if not issecret(ctype) and ctype then m.creatureType = ctype end
+    local classification = UnitClassification(unit)
+    if not issecret(classification) and classification then mob.classification = classification end
+    local creatureType = UnitCreatureType(unit)
+    if not issecret(creatureType) and creatureType then mob.creatureType = creatureType end
     return guid, id, name
 end
 
@@ -328,10 +322,10 @@ end
 -- were none or the kills were mixed (no way to tell which one the objective counted).
 function ns.KillAround(at)
     local id
-    for _, k in ipairs(recentKills) do
-        if k.t >= at - 3 and k.t <= at + 1.5 then
-            if id and id ~= k.id then return nil end
-            id = k.id
+    for _, kill in ipairs(recentKills) do
+        if kill.t >= at - 3 and kill.t <= at + 1.5 then
+            if id and id ~= kill.id then return nil end
+            id = kill.id
         end
     end
     return id
@@ -354,9 +348,8 @@ local function Watch(unit)
     local dead, denied = UnitIsDead(unit), UnitIsTapDenied(unit)
     if issecret(dead) or issecret(denied) or denied then return end
     if not dead then
-        -- Only mobs that had you on their threat list: an untagged mob killed by a guard or
-        -- another player's pet is in combat, but not with you. Group kills you didn't touch
-        -- still count through their XP message.
+        -- Only mobs with you on their threat list: one a guard or another player's pet killed was
+        -- in combat, but not with you. Group kills you didn't touch count through their XP message.
         local threat = UnitThreatSituation("player", unit)
         if not issecret(threat) and threat ~= nil then seenAlive[guid] = true end
     elseif seenAlive[guid] then
@@ -384,18 +377,18 @@ ns.On("UPDATE_MOUSEOVER_UNIT", function() Watch("mouseover") end)
 -- XP signal
 ------------------------------------------------------------------------------
 
-local function FormatToPattern(fmt)
-    local p = fmt:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
-    p = p:gsub("%%%%s", "(.-)")
-    p = p:gsub("%%%%d", "(%%d+)")
-    return "^" .. p
+local function FormatToPattern(template)
+    local pattern = template:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
+    pattern = pattern:gsub("%%%%s", "(.-)")
+    pattern = pattern:gsub("%%%%d", "(%%d+)")
+    return "^" .. pattern
 end
 
 local XP_PATTERN = COMBATLOG_XPGAIN_FIRSTPERSON and FormatToPattern(COMBATLOG_XPGAIN_FIRSTPERSON)
 
-ns.On("CHAT_MSG_COMBAT_XP_GAIN", function(msg)
-    if not XP_PATTERN or issecret(msg) or not msg then return end
-    local name = msg:match(XP_PATTERN)
+ns.On("CHAT_MSG_COMBAT_XP_GAIN", function(message)
+    if not XP_PATTERN or issecret(message) or not message then return end
+    local name = message:match(XP_PATTERN)
     if not name or name == "" then return end
     local now = GetTime()
     NoteKill(nameToID[name])
@@ -410,12 +403,12 @@ ns.On("CHAT_MSG_COMBAT_XP_GAIN", function(msg)
 end)
 
 -- Experience earned per day, from any source.
-local lastXP, lastMax, lastLevel
+local lastXP, lastXPMax, lastLevel
 local function TrackXP()
-    local xp, max, level = UnitXP("player"), UnitXPMax("player"), UnitLevel("player")
-    if issecret(xp) or issecret(max) then return end
+    local xp, xpMax, level = UnitXP("player"), UnitXPMax("player"), UnitLevel("player")
+    if issecret(xp) or issecret(xpMax) then return end
     if lastXP then
-        local gain = (level > lastLevel) and (lastMax - lastXP + xp) or (xp - lastXP)
+        local gain = (level > lastLevel) and (lastXPMax - lastXP + xp) or (xp - lastXP)
         if gain > 0 then
             local day = ns.Day()
             day.xp = day.xp + gain
@@ -424,7 +417,7 @@ local function TrackXP()
             if ns.Moments then pcall(ns.Moments.XP, gain) end
         end
     end
-    lastXP, lastMax, lastLevel = xp, max, level
+    lastXP, lastXPMax, lastLevel = xp, xpMax, level
 end
 ns.On("PLAYER_XP_UPDATE", TrackXP)
 
@@ -435,8 +428,8 @@ ns.On("PLAYER_XP_UPDATE", TrackXP)
 local function LootSignal(guid, id)
     if counted[guid] then return end
     counted[guid] = true
-    local m = ns.db.mobs[id]
-    local name = m and m.name
+    local mob = ns.db.mobs[id]
+    local name = mob and mob.name
     if name and Take(xpOnly[name], GetTime(), LOOT_WINDOW) then return end -- counted from XP
     Record(id, name, "loot", guid)
 end
@@ -462,17 +455,17 @@ local function ReadLoot()
         lootedGuids[guid] = true
         LootSignal(guid, corpse.id)
         AttachLoot(guid, corpse.id, corpse.items)
-        local m = Mob(corpse.id)
-        m.looted = m.looted + 1
+        local mob = Mob(corpse.id)
+        mob.looted = mob.looted + 1
         for _, item in ipairs(corpse.items) do
-            local d = m.drops[item.itemID]
-            if not d then
-                d = { times = 0, qty = 0 }
-                m.drops[item.itemID] = d
+            local drop = mob.drops[item.itemID]
+            if not drop then
+                drop = { times = 0, qty = 0 }
+                mob.drops[item.itemID] = drop
             end
-            d.times = d.times + 1
-            d.qty = d.qty + item.qty
-            d.link = item.link
+            drop.times = drop.times + 1
+            drop.qty = drop.qty + item.qty
+            drop.link = item.link
         end
     end
 end
@@ -487,14 +480,14 @@ ns.On("LOOT_OPENED", OnLoot)
 
 -- Items you receive, for the daily log.
 local LOOT_PATTERNS = {}
-for _, fmt in ipairs({ LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE, LOOT_ITEM_PUSHED_SELF, LOOT_ITEM_PUSHED_SELF_MULTIPLE }) do
-    if fmt then table.insert(LOOT_PATTERNS, FormatToPattern(fmt)) end
+for _, template in ipairs({ LOOT_ITEM_SELF, LOOT_ITEM_SELF_MULTIPLE, LOOT_ITEM_PUSHED_SELF, LOOT_ITEM_PUSHED_SELF_MULTIPLE }) do
+    if template then table.insert(LOOT_PATTERNS, FormatToPattern(template)) end
 end
 
-ns.On("CHAT_MSG_LOOT", function(msg)
-    if issecret(msg) or not msg then return end
+ns.On("CHAT_MSG_LOOT", function(message)
+    if issecret(message) or not message then return end
     for _, pattern in ipairs(LOOT_PATTERNS) do
-        local link = msg:match(pattern)
+        local link = message:match(pattern)
         if link then
             local quality = C_Item.GetItemQualityByID and C_Item.GetItemQualityByID(link)
             if quality and quality >= ns.db.settings.lootQuality then
@@ -522,13 +515,13 @@ local currentZone, since
 local function Tick()
     local now = GetTime()
     if since then
-        local dt = now - since
+        local elapsed = now - since
         local day = ns.Day()
-        day.played = day.played + dt
+        day.played = day.played + elapsed
         if currentZone then
-            local z = ZoneRecord(currentZone)
-            z.seconds = z.seconds + dt
-            z.maxLevel = math.max(z.maxLevel or 0, UnitLevel("player"))
+            local record = ZoneRecord(currentZone)
+            record.seconds = record.seconds + elapsed
+            record.maxLevel = math.max(record.maxLevel or 0, UnitLevel("player"))
         end
     end
     since = now
@@ -540,15 +533,14 @@ local function OnSubZone()
     local zone = ns.Zone()
     local place = GetSubZoneText and GetSubZoneText()
     if issecret(place) or not zone or not place or place == "" or place == zone then return end
-    local z = ZoneRecord(zone)
-    z.places = z.places or {}
-    if z.places[place] then return end
+    local record = ZoneRecord(zone)
+    record.places = record.places or {}
+    if record.places[place] then return end
     local mapID, x, y = ns.Position()
-    z.places[place] = { t = time(), level = UnitLevel("player"), mapID = mapID, x = x, y = y }
-    local events = ns.Day().events
-    local last = events[#events]
-    if last and last.k == "place" and last.zone == zone and time() - last.t < 300 then
-        table.insert(last.places, place)
+    record.places[place] = { t = time(), level = UnitLevel("player"), mapID = mapID, x = x, y = y }
+    local line = Recent("place", 300)
+    if line and line.zone == zone then
+        table.insert(line.places, place)
         ns.Refresh()
     else
         Log("place", { zone = zone, places = { place } })
@@ -561,19 +553,19 @@ local function OnZone()
     if not zone then return end
     currentZone = zone
     local isNew = not ns.db.zones[zone]
-    local z = ZoneRecord(zone)
-    z.mapID = ns.ZoneMap() or z.mapID
-    z.continent = (z.mapID and ns.Continent(z.mapID)) or z.continent
+    local record = ZoneRecord(zone)
+    record.mapID = ns.ZoneMap() or record.mapID
+    record.continent = (record.mapID and ns.Continent(record.mapID)) or record.continent
     -- Dungeons, raids and the like are written down as lands too; the Lands page lists them apart.
-    local _, itype = GetInstanceInfo()
-    if not issecret(itype) and itype and itype ~= "none" then z.instance = itype end
-    z.maxLevel = math.max(z.maxLevel or 0, UnitLevel("player"))
+    local _, instanceType = GetInstanceInfo()
+    if not issecret(instanceType) and instanceType and instanceType ~= "none" then record.instance = instanceType end
+    record.maxLevel = math.max(record.maxLevel or 0, UnitLevel("player"))
     -- Remembered per day so a /reload doesn't write "Travelled to" again (or count a visit).
     local day = ns.Day()
     if day.lastZone ~= zone then
         day.lastZone = zone
-        z.visits = (z.visits or 0) + 1
-        z.last = time()
+        record.visits = (record.visits or 0) + 1
+        record.last = time()
         Log("zone", { zone = zone, new = isNew })
     end
     OnSubZone()
@@ -595,20 +587,26 @@ ns.On("ZONE_CHANGED_INDOORS", OnSubZone)
 -- Newly explored map areas uncover on the bestiary's hunting maps straight away.
 ns.On("MAP_EXPLORATION_UPDATED", ns.Refresh)
 ns.On("PLAYER_LOGOUT", Tick)
+
+-- "n:Name" -> "Name", for tallies kept by name before the creature's ID was known.
+local function NamedKey(key)
+    return type(key) == "string" and key:match("^n:(.+)$")
+end
+
 ns.On("PLAYER_LOGIN", function()
-    for id, m in pairs(ns.db.mobs) do
-        if type(id) == "number" and m.name then nameToID[m.name] = id end
+    for id, mob in pairs(ns.db.mobs) do
+        if type(id) == "number" and mob.name then nameToID[mob.name] = id end
     end
     -- Tallies still under "n:Name" (from before runs were merged too) join the creature's entry.
     local named = {}
     for _, run in ipairs(ns.db.runs or {}) do
         for key in pairs(run.mobs or {}) do
-            local name = type(key) == "string" and key:match("^n:(.+)$")
+            local name = NamedKey(key)
             if name and nameToID[name] then named[name] = true end
         end
     end
     for key in pairs(ns.db.mobs) do
-        local name = type(key) == "string" and key:match("^n:(.+)$")
+        local name = NamedKey(key)
         if name and nameToID[name] then named[name] = true end
     end
     for name in pairs(named) do MergeNamed(name, nameToID[name]) end
@@ -621,9 +619,9 @@ end)
 
 ns.On("PLAYER_LEVEL_UP", function(level)
     -- Merged: Journey.lua and Played.lua keep more on each level's record.
-    local rec = ns.db.levels[level] or {}
-    ns.db.levels[level] = rec
-    rec.time, rec.zone = time(), ns.Zone()
+    local record = ns.db.levels[level] or {}
+    ns.db.levels[level] = record
+    record.time, record.zone = time(), ns.Zone()
     table.insert(ns.Day().levels, level)
     Log("level", { level = level })
 end)
@@ -637,7 +635,7 @@ local function LikelyKiller()
         if UnitExists(unit) then
             local threat = UnitThreatSituation("player", unit)
             if not issecret(threat) and threat ~= nil then
-                local guid, id, name = Discover(unit)
+                local _, id, name = Discover(unit)
                 if id then return id, name end
             end
         end
@@ -652,16 +650,13 @@ ns.On("PLAYER_DEAD", function()
         mapID = mapID, x = x, y = y }
     table.insert(ns.db.deaths, death)
     table.insert(ns.Day().deaths, death)
-    if id then
-        local m = Mob(id, name)
-        m.killedMe = m.killedMe + 1
-    end
+    local killer = id and Mob(id, name)
+    if killer then killer.killedMe = killer.killedMe + 1 end
     if zone then
-        local z = ZoneRecord(zone)
-        z.deaths = z.deaths + 1
+        local record = ZoneRecord(zone)
+        record.deaths = record.deaths + 1
     end
-    local m = id and ns.db.mobs[id]
-    Log("death", { killer = name, classification = m and m.classification })
+    Log("death", { killer = name, classification = killer and killer.classification })
 end)
 
 local lastMoney
