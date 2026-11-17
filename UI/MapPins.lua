@@ -625,28 +625,31 @@ function MapPins.Has(kind, id)
     return Find(kind, id) ~= nil
 end
 
--- Opens the world map on mapID, with the book left open behind it.
+-- Points you to mapID on the world map. The book never opens or turns the map itself: the game's map opened or
+-- moved to another zone from an add-on's code (OpenWorldMap, ShowUIPanel, SetMapID) stays marked as the add-on's,
+-- and its quest pins are then blocked in combat. So the pins go on, and you open the map (they show on whichever
+-- map they're on); this says where to look.
 function MapPins.Open(mapID)
-    if InCombatLockdown() or not WorldMapFrame then return false end
-    BookBehind()
-    if not (OpenWorldMap and pcall(OpenWorldMap, mapID)) then
-        pcall(ShowUIPanel, WorldMapFrame)
-        if mapID then pcall(WorldMapFrame.SetMapID, WorldMapFrame, mapID) end
-    end
     Refresh()
-    return true
+    local info = mapID and C_Map.GetMapInfo(mapID)
+    local where = info and info.name
+    if WorldMapFrame and WorldMapFrame:IsShown() then
+        if where and WorldMapFrame:GetMapID() ~= mapID then ns.Print(L["It's on your map in %s."]:format(where)) end
+    elseif where then
+        ns.Print(L["On your map in %s: open the map to see it."]:format(where))
+    else
+        ns.Print(L["On your map: open the map to see it."])
+    end
 end
 
--- Pins an entry and opens the world map on mapID (where the pins you asked to see are).
+-- Pins an entry, and says where on the world map (mapID) it is.
 function MapPins.Show(kind, id, mapID)
     if not MapPins.ready then
         ns.Print(L["The world map isn't available to the book right now."])
         return
     end
     if not Find(kind, id) then table.insert(ns.db.mapLayers, { kind = kind, id = id }) end
-    if not MapPins.Open(mapID) then
-        ns.Print(L["Pinned to your map; open it once the fight is over."])
-    end
+    MapPins.Open(mapID)
 end
 
 function MapPins.Remove(kind, id)
@@ -693,12 +696,16 @@ local function RegisterPool(template, Create)
     WorldMapFrame.pinPools[template] = pool
 end
 
+-- The book drops behind the map while it's open and comes back up when it closes, told by the map itself (it calls
+-- its data providers sealed off from its own code; a hook on its OnHide ran inside the game's panel code).
+function provider:OnShow() BookBehind() end
+function provider:OnHide() BookInFront() end
+
 local function Setup()
     if MapPins.ready or not WorldMapFrame then return end
     RegisterPool(TEMPLATE, CreatePin)
     RegisterPool(AREA_TEMPLATE, CreateAreaPin)
     WorldMapFrame:AddDataProvider(provider)
-    WorldMapFrame:HookScript("OnHide", BookInFront)
     MapPins.ready = true
 end
 

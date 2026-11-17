@@ -1,5 +1,10 @@
 # Captain's Log
 
+## 0.9.4
+
+- "Show on map" pins things to your world map and says which zone to look at, rather than opening the map itself. The game's map opened or moved by an add-on stays marked as that add-on's, and its quest pins could then be blocked in combat. Open the map yourself and the pins are there.
+- The book drops behind the map and comes back up as the map opens and closes, told by the map itself rather than from inside the game's window code.
+
 ## 0.9.3
 
 - A Forever update hides from add-ons how hard each hit lands, so the bestiary can't learn how hard a creature hits any more ("Melee hits for 45-60"). Creatures you'd already fought keep theirs, and new ones still get how often they swing. If the game shows hit sizes again, the log picks them up again by itself.
