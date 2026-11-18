@@ -74,7 +74,7 @@ end)
 UI.RegisterLink("wp", function(mapID, x, y)
     UI.Waypoint(mapID, x, y)
 end, function()
-    return L["Waypoint"], L["Puts a pin on your world map, with the arrow on screen to lead you there. It replaces any pin you placed yourself."]
+    return L["Waypoint"], L["Says the spot in chat with a map pin link: click it and the game puts its waypoint there and opens your map on it (click that pin to track it). It replaces any waypoint you placed yourself."]
 end)
 
 -- Writers, so pages don't repeat the formatting.

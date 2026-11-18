@@ -1,5 +1,12 @@
 # Captain's Log
 
+## 0.9.5
+
+- Map pins are frames of the book's own on a layer over the map (FrogLib 1.13.0's MapPins, the way EllesmereUI draws its map markers), no longer the map's own pins in a pool of the book's: acquiring those ran the map's code from the book's, which left its state marked as the book's, and Blizzard's quest pins could then be blocked in combat. They look and click as before: left-click a dot to open its page, right-click to remove those pins (shift-right-click: all of the book's); hunting areas still let left-clicks through to the map.
+- "Waypoint" no longer places the game's waypoint pin or tracks it itself (its event ran the map's code at once, under the book's taint): it says the spot in chat with a map pin link. Click the link and the game puts its waypoint there and opens your map on it; click that pin on the map to track it.
+- No shift-click from the book's pages into chat: text an add-on puts in the chat box gets that message refused while chat is restricted, and opening or focusing the box from an add-on taints its state (EllesmereUI found both).
+- Milestones and debug lines that come during combat are said once it ends. Shared code (FrogLib 1.13.0): chat lines that come during combat wait for it to end (a line printed in combat taints the chat history, as EllesmereUI found).
+
 ## 0.9.4
 
 - "Show on map" pins things to your world map and says which zone to look at, rather than opening the map itself. The game's map opened or moved by an add-on stays marked as that add-on's, and its quest pins could then be blocked in combat. Open the map yourself and the pins are there.

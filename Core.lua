@@ -46,7 +46,7 @@ ns.Print = FrogLib.Util.Printer(L["Captain's Log"], "d8b56a")
 
 function ns.Debug(text)
     if ns.db and ns.db.settings.debug then
-        print("|cffd8b56aCaptain's Log|r |cff999999" .. text .. "|r")
+        FrogLib.Util.Say("|cffd8b56aCaptain's Log|r |cff999999" .. text .. "|r") -- in combat, after it
     end
 end
 

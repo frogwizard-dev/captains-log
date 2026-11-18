@@ -5,9 +5,8 @@ local UI = ns.UI
 -- Captain's Log on the game's world map: a Map button pins an entry (db.mapLayers { kind, id }:
 -- questgiver, questfoes, mob, npc, zone, photo, fish, fishspot), rebuilt from the journal each time
 -- the map draws, until you right-click it away; your fishing spots come from a setting instead. The
--- plumbing follows HereBeDragons-Pins: our own pin pool and a data provider the map asks for pins.
+-- pins are FrogLib.MapPins': frames of ours on a layer over the map's canvas (see "Pins" below).
 
-local TEMPLATE = "CaptainsLogMapPinTemplate"
 local MapPins = {}
 ns.MapPins = MapPins
 
@@ -246,17 +245,17 @@ local function Place(from, x, y, to)
 end
 
 ------------------------------------------------------------------------------
--- Pins
+-- Pins: frames of our own on a layer over the map's canvas (FrogLib.MapPins)
 ------------------------------------------------------------------------------
 
-local pinMixin = CreateFromMixins(MapCanvasPinMixin)
--- MapCanvasPinMixin calls this, and it's blocked in combat for addon pins (HereBeDragons does
--- the same).
-pinMixin.SetPassThroughButtons = function() end
+-- Not the map's own pins or pin pools (HereBeDragons' way, which 0.9.4 still used): acquiring or releasing one runs
+-- the map's code from ours, which marks its scroll container dirty under our taint, and Blizzard's quest pins read
+-- that before a call that's protected in combat. FrogLib.MapPins draws plain frames of ours on a layer over the
+-- canvas, placed when the map tells our data provider it has shown, changed map, zoomed or resized.
 
--- The map wires up a pin's mouse scripts itself (and asserts the pin set none), then calls
--- these methods: OnMouseEnter, OnMouseLeave, and OnMouseUp(button, upInside).
-function pinMixin:OnMouseEnter()
+local set -- our pins on the world map
+
+local function PinEnter(self)
     local pin = self.data
     if not pin then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -270,26 +269,29 @@ function pinMixin:OnMouseEnter()
     GameTooltip:Show()
 end
 
-function pinMixin:OnMouseLeave()
-    GameTooltip:Hide()
-end
-
--- upInside is false when the button was released off the pin; older maps don't pass it.
-function pinMixin:OnMouseUp(button, upInside)
+-- upInside is false when the button was released off the pin.
+local function PinUp(self, button, upInside)
     local pin = self.data
     if not pin or upInside == false then return end
     GameTooltip:Hide()
     if button == "RightButton" then
         if IsShiftKeyDown() then MapPins.Clear() else MapPins.Remove(pin.layer.kind, pin.layer.id) end
-    elseif button == "LeftButton" then
+    elseif button == "LeftButton" and not pin.area then
         ns.Book:Goto(pin.page, pin.sel or pin.layer.id)
     end
 end
 
-function pinMixin:OnClick() end -- handled in OnMouseUp; the map may call both
+local function Mouse(frame)
+    frame:SetMouseMotionEnabled(true)
+    frame:SetMouseClickEnabled(true)
+    frame:SetScript("OnEnter", PinEnter)
+    frame:SetScript("OnLeave", GameTooltip_Hide)
+    frame:SetScript("OnMouseUp", PinUp)
+end
 
-local function CreatePin()
-    local pin = Mixin(CreateFrame("Frame", nil, WorldMapFrame:GetCanvas()), pinMixin)
+-- A dot (its colour in a dark rim) or an icon: the same size on screen at every zoom.
+local function CreateDot(parent)
+    local pin = CreateFrame("Frame", nil, parent)
     pin:SetSize(10, 10)
     pin.rim = pin:CreateTexture(nil, "OVERLAY", nil, 1)
     pin.rim:SetAllPoints()
@@ -299,14 +301,11 @@ local function CreatePin()
     pin.fill:SetPoint("BOTTOMRIGHT", -1, 1)
     pin.icon = pin:CreateTexture(nil, "OVERLAY", nil, 3)
     pin.icon:SetAllPoints()
-    pin:EnableMouse(true) -- the map then routes the mouse to the pin methods above
-    pcall(pin.SetScalingLimits, pin, 1, 1.0, 1.2)
+    Mouse(pin)
     return pin
 end
 
-function pinMixin:OnAcquired(pin, x, y)
-    self:UseFrameLevelType("PIN_FRAME_LEVEL_AREA_POI")
-    self:SetPosition(x, y)
+local function SetupDot(self, pin)
     self.data = pin
     local atlas = UI.PIN_ATLAS[pin.kind]
     local iconic = atlas and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) ~= nil
@@ -317,11 +316,6 @@ function pinMixin:OnAcquired(pin, x, y)
     local color = UI.PIN[pin.kind] or UI.PIN.kill
     self.fill:SetColorTexture(color[1], color[2], color[3], 1)
     self:SetSize(iconic and 24 or 10, iconic and 24 or 10)
-    self:Show()
-end
-
-function pinMixin:OnReleased()
-    self.data = nil
 end
 
 ------------------------------------------------------------------------------
@@ -329,23 +323,17 @@ end
 -- cluster of kills as a padded shape around them that zooms with the map and lets left-clicks through.
 ------------------------------------------------------------------------------
 
-local AREA_TEMPLATE = "CaptainsLogMapAreaTemplate"
 local AREA_MIN = 15     -- more kills than this on the map being viewed, and it's drawn as areas
 local AREA_LINK = 0.06  -- kills closer than this (share of map width) share a hunting ground
 local AREA_PAD = 0.012  -- how far the shape reaches past its outermost kills
 local PAD_STEPS = 8     -- points around each kill when padding: an octagon, near enough round
 
-local areaMixin = CreateFromMixins(pinMixin)
-
-local FrameMethods = getmetatable(CreateFrame("Frame")).__index
-
-local function CreateAreaPin()
-    local pin = Mixin(CreateFrame("Frame", nil, WorldMapFrame:GetCanvas()), areaMixin)
+-- One step below the dots and icons (a quest giver's "!" stays on top), zooming with the map, and left-clicks
+-- passed on to it (set once, out of combat: it's protected in combat).
+local function CreateArea(parent)
+    local pin = CreateFrame("Frame", nil, parent)
     pin.tris, pin.lines = {}, {}
-    pin:EnableMouse(true)
-    -- The real method (the mixin's is a stub for the map's own call); it can't be changed in
-    -- combat, so an area made mid-fight keeps left-clicks.
-    if not InCombatLockdown() then pcall(FrameMethods.SetPassThroughButtons, pin, "LeftButton") end
+    Mouse(pin)
     return pin
 end
 
@@ -372,15 +360,9 @@ local function Edge(pin, index, ax, ay, bx, by, r, g, b, a)
     line:Show()
 end
 
-function areaMixin:OnAcquired(area, x, y)
-    self:UseFrameLevelType("PIN_FRAME_LEVEL_AREA_POI")
-    -- No scaling limits: the area keeps its size on the map, not on screen.
-    self.scaleFactor, self.startScale, self.endScale = nil, nil, nil
-    if self.SetIgnoreGlobalPinScale then self:SetIgnoreGlobalPinScale(true) end
-    self:SetPosition(x, y)
-    self:SetSize(area.w, area.h)
+local function SetupArea(self, area)
     self.data = area
-
+    self:SetSize(area.w, area.h)
     -- A fan of triangles from the middle fills the (convex) shape; lines trace its edge.
     local hull, corners = area.hull, #area.hull
     local middleX, middleY = 0, 0
@@ -396,17 +378,6 @@ function areaMixin:OnAcquired(area, x, y)
     end
     for i = corners + 1, #self.tris do self.tris[i]:Hide() end
     for i = corners + 1, #self.lines do self.lines[i]:Hide() end
-    self:Show()
-end
-
--- One step below the dots and icons, so a quest giver's "!" stays on top of a hunting area.
-function areaMixin:ApplyFrameLevel()
-    if MapCanvasPinMixin.ApplyFrameLevel then MapCanvasPinMixin.ApplyFrameLevel(self) end
-    self:SetFrameLevel(math.max(1, self:GetFrameLevel() - 1))
-end
-
-function areaMixin:OnMouseUp(button, upInside)
-    if button == "RightButton" then pinMixin.OnMouseUp(self, button, upInside) end
 end
 
 -- Groups kills that are within AREA_LINK of each other (directly or through other kills).
@@ -476,10 +447,17 @@ local function Shape(hull)
     return shape, minX, maxX, minY, maxY
 end
 
+-- The canvas's size (only read).
+local function CanvasSize()
+    local width, height = WorldMapFrame:GetCanvas():GetSize()
+    if not width or width == 0 or not height or height == 0 then return nil end
+    return width, height
+end
+
 -- Draws one creature's kills (already on this map) as hunting areas.
-local function AddAreas(map, spots, base)
-    local width, height = map:GetCanvas():GetSize()
-    if not width or width == 0 or not height or height == 0 then return false end
+local function AddAreas(pins, spots, base)
+    local width, height = CanvasSize()
+    if not width then return false end
     local groups = Clusters(spots, width, height)
     local most = 0
     for _, group in ipairs(groups) do most = math.max(most, #group) end
@@ -494,21 +472,21 @@ local function AddAreas(map, spots, base)
             end
         end
         local shape, minX, maxX, minY, maxY = Shape(Hull(points))
-        map:AcquirePin(AREA_TEMPLATE, {
+        pins:Add("area", (minX + maxX) / 2 / width, (minY + maxY) / 2 / height, {
             area = true, label = base.label, title = base.title, page = base.page, layer = base.layer,
             sel = base.sel, note = (#group == 1 and L["%d slain here"] or L["%d slain in this area"]):format(#group),
             alpha = 0.16 + 0.22 * (#group / most),
             hull = shape, w = maxX - minX, h = maxY - minY,
-        }, (minX + maxX) / 2 / width, (minY + maxY) / 2 / height)
+        })
     end
     return true
 end
 
 -- A picture's view cone: the wedge from where it was taken (pin.points, on the picture's map),
 -- drawn as a gold area on the map being viewed. Points off this map are dropped.
-local function AddCone(map, mapID, pin, base)
-    local width, height = map:GetCanvas():GetSize()
-    if not width or width == 0 or not height or height == 0 then return end
+local function AddCone(pins, mapID, pin, base)
+    local width, height = CanvasSize()
+    if not width then return end
     local points = {}
     for _, point in ipairs(pin.points or {}) do
         local x, y = Place(pin[1], point[1], point[2], mapID)
@@ -516,46 +494,35 @@ local function AddCone(map, mapID, pin, base)
     end
     if #points < 3 then return end
     local shape, minX, maxX, minY, maxY = Shape(Hull(points))
-    map:AcquirePin(AREA_TEMPLATE, {
+    pins:Add("area", (minX + maxX) / 2 / width, (minY + maxY) / 2 / height, {
         area = true, label = base.label, title = base.title, page = base.page, layer = base.layer, sel = base.sel,
         note = L["What the picture looked at"], alpha = 0.3, color = UI.PIN.place,
         hull = shape, w = math.max(1, maxX - minX), h = math.max(1, maxY - minY),
-    }, (minX + maxX) / 2 / width, (minY + maxY) / 2 / height)
+    })
 end
 
 ------------------------------------------------------------------------------
--- The data provider: the map calls RefreshAllData whenever it changes map
+-- Drawing: each time the map shows or changes map
 ------------------------------------------------------------------------------
 
-local provider = CreateFromMixins(MapCanvasDataProviderMixin)
-
-function provider:RemoveAllData()
-    self:GetMap():RemoveAllPinsByTemplate(TEMPLATE)
-    self:GetMap():RemoveAllPinsByTemplate(AREA_TEMPLATE)
-end
-
--- Per pinned entry: kill spots grouped by creature (dots, or areas when there are many),
--- then the icons last so they draw on top.
-function provider:RefreshAllData()
-    self:RemoveAllData()
+-- Per pinned entry: kill spots grouped by creature (dots, or areas when there are many), then the icons, which sit a
+-- level above the areas.
+local function Draw(pins, mapID)
     if not ns.db then return end
-    local map = self:GetMap()
-    local mapID = map:GetMapID()
-    if not mapID then return end
     local layers = {}
     for i, layer in ipairs(ns.db.mapLayers) do layers[i] = layer end
     if ns.db.settings.fishPins then layers[#layers + 1] = FISH_LAYER end
     for _, layer in ipairs(layers) do
         local Build = builders[layer.kind]
-        local ok, title, page, pins, selected = false, nil, nil, nil, nil
-        if Build then ok, title, page, pins, selected = pcall(Build, layer.id) end
-        if ok and pins then
+        local ok, title, page, list, selected = false, nil, nil, nil, nil
+        if Build then ok, title, page, list, selected = pcall(Build, layer.id) end
+        if ok and list then
             -- What a pin's click opens in the book: the entry itself unless the builder says.
             selected = selected or layer.id
             local kills, order, others = {}, {}, {}
-            for _, pin in ipairs(pins) do
+            for _, pin in ipairs(list) do
                 if pin[4] == "cone" then
-                    AddCone(map, mapID, pin, { label = pin[5], title = title, page = page, layer = layer, sel = selected })
+                    AddCone(pins, mapID, pin, { label = pin[5], title = title, page = page, layer = layer, sel = selected })
                 else
                     local x, y = Place(pin[1], pin[2], pin[3], mapID)
                     if x then
@@ -574,25 +541,25 @@ function provider:RefreshAllData()
             for _, label in ipairs(order) do
                 local spots = kills[label]
                 local base = { label = label, title = title, page = page, layer = layer, sel = selected }
-                if not (#spots > AREA_MIN and AddAreas(map, spots, base)) then
+                if not (#spots > AREA_MIN and AddAreas(pins, spots, base)) then
                     for _, spot in ipairs(spots) do
-                        map:AcquirePin(TEMPLATE, { kind = "kill", label = label, note = L["Slain here"],
-                            title = title, page = page, layer = layer, sel = selected }, spot[1], spot[2])
+                        pins:Add("dot", spot[1], spot[2], { kind = "kill", label = label, note = L["Slain here"],
+                            title = title, page = page, layer = layer, sel = selected })
                     end
                 end
             end
             -- A pin may carry its own note and its own entry to open (a fishing spot).
             for _, other in ipairs(others) do
                 local pin = other[1]
-                map:AcquirePin(TEMPLATE, { kind = pin[4], label = pin[5], note = pin.note, title = title,
-                    page = page, layer = layer, sel = pin.sel or selected }, other[2], other[3])
+                pins:Add("dot", other[2], other[3], { kind = pin[4], label = pin[5], note = pin.note, title = title,
+                    page = page, layer = layer, sel = pin.sel or selected })
             end
         end
     end
 end
 
 local function Refresh()
-    if MapPins.ready and WorldMapFrame:IsShown() then provider:RefreshAllData() end
+    if set then set:Refresh() end
 end
 MapPins.Refresh = Refresh
 
@@ -680,49 +647,17 @@ end
 -- Joining the world map
 ------------------------------------------------------------------------------
 
-local function RegisterPool(template, Create)
-    local pool = CreateUnsecuredRegionPoolInstance and CreateUnsecuredRegionPoolInstance(template)
-        or CreateFramePool("FRAME")
-    pool.parent = WorldMapFrame:GetCanvas()
-    pool.createFunc = Create
-    pool.resetFunc = function(_, pin)
-        pin:Hide()
-        pin:ClearAllPoints()
-        pin:OnReleased()
-        pin.pinTemplate = nil
-        pin.owningMap = nil
-    end
-    pool.creationFunc, pool.resetterFunc = pool.createFunc, pool.resetFunc -- older names
-    WorldMapFrame.pinPools[template] = pool
-end
-
 -- The book drops behind the map while it's open and comes back up when it closes, told by the map itself (it calls
--- its data providers sealed off from its own code; a hook on its OnHide ran inside the game's panel code).
-function provider:OnShow() BookBehind() end
-function provider:OnHide() BookInFront() end
-
-local function Setup()
-    if MapPins.ready or not WorldMapFrame then return end
-    RegisterPool(TEMPLATE, CreatePin)
-    RegisterPool(AREA_TEMPLATE, CreateAreaPin)
-    WorldMapFrame:AddDataProvider(provider)
-    MapPins.ready = true
-end
-
-local function TrySetup()
-    local ok, err = pcall(Setup)
-    if not ok then ns.Debug("World map pins unavailable: " .. tostring(err)) end
-end
-
-if WorldMapFrame then
-    TrySetup()
-else
-    local waiter = CreateFrame("Frame")
-    waiter:RegisterEvent("ADDON_LOADED")
-    waiter:SetScript("OnEvent", function(self, _, name)
-        if name == "Blizzard_WorldMap" then
-            self:UnregisterAllEvents()
-            TrySetup()
-        end
-    end)
-end
+-- our data provider sealed off from its own code; a hook on its OnHide ran inside the game's panel code).
+set = FrogLib.MapPins.New({
+    level = "PIN_FRAME_LEVEL_AREA_POI",
+    kinds = {
+        dot = { Create = CreateDot, Setup = SetupDot, screen = true, raise = 1 },
+        area = { Create = CreateArea, Setup = SetupArea, pass = "LeftButton", raise = 0 },
+    },
+    Draw = Draw,
+    OnShow = BookBehind,
+    OnHide = BookInFront,
+})
+set:Enable(true)
+MapPins.ready = true

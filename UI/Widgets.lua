@@ -345,16 +345,16 @@ local function HyperlinkEnter(self, link)
     ShowLinkTip(self, "ANCHOR_CURSOR", link)
 end
 
-local function HyperlinkClick(_, link, text)
+local function HyperlinkClick(_, link)
     if link:match("^clog:") then
         local kind, args = LinkKind(link)
         if kind then
             GameTooltip:Hide()
             kind.click(unpack(args))
         end
-    elseif IsModifiedClick("CHATLINK") and ChatEdit_InsertLink then
-        ChatEdit_InsertLink(text) -- shift-click an item into chat, as anywhere else
     end
+    -- No shift-click into chat: text an add-on puts in the chat box makes that message refused while chat is
+    -- restricted, and opening or focusing the box from here taints its state (EllesmereUI found both).
 end
 
 ------------------------------------------------------------------------------
@@ -520,7 +520,7 @@ function UI.MapActions(onMap, mapID, x, y, mapTip)
     if mapID and x and y then
         actions[#actions + 1] = { L["Waypoint"], atlas = "Waypoint-MapPin-ChatIcon", icon = "Interface\\Icons\\INV_Misc_Map02",
             onClick = function() UI.Waypoint(mapID, x, y) end,
-            tip = { L["Set a waypoint"], L["Puts a pin on your world map with the arrow on screen to lead you there. It replaces any pin you placed yourself."] } }
+            tip = { L["Waypoint"], L["Says the spot in chat with a map pin link: click it and the game puts its waypoint there and opens your map on it (click that pin to track it). It replaces any waypoint you placed yourself."] } }
     end
     return actions
 end
@@ -875,31 +875,21 @@ function UI.DrawCone(canvas, cone, x, y, facing, fov, reach)
     for i = lineCount + 1, #cone.lines do cone.lines[i]:Hide() end
 end
 
--- Puts the game's own waypoint pin on the world map (with the on-screen arrow) and opens the
--- map there. There's only one such pin, so this replaces any you placed yourself.
+-- A map pin link in chat for a spot: click it and the game puts its own waypoint pin there and opens the map on it
+-- (click the pin to track it, with the on-screen arrow). The book never places, tracks or opens these itself: the
+-- game's waypoint event runs the map's code at once, under the add-on's taint, and Blizzard's quest pins are then
+-- blocked in combat; the link's click is yours, so the game's code does it.
 function UI.Waypoint(mapID, x, y, label)
     mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
-    if not (mapID and x and y and C_Map.SetUserWaypoint and UiMapPoint) then return end
-    if C_Map.CanSetUserWaypointOnMap and not C_Map.CanSetUserWaypointOnMap(mapID) then
+    if not (mapID and x and y) then return end
+    local link = FrogLib.MapPins.Link(mapID, x, y)
+    if not link then
         ns.Print(L["The game doesn't allow a waypoint on that map."])
         return
     end
-    local ok = pcall(function()
-        C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(mapID, x, y))
-        if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
-            C_SuperTrack.SetSuperTrackedUserWaypoint(true)
-        end
-    end)
-    if not ok then
-        ns.Print(L["Couldn't place a waypoint there."])
-        return
-    end
-    if label then
-        ns.Print(string.format(L["Waypoint set for %s (%.1f, %.1f)."], label, x * 100, y * 100))
-    else
-        ns.Print(string.format(L["Waypoint set (%.1f, %.1f)."], x * 100, y * 100))
-    end
-    ns.MapPins.Open(mapID)
+    local where = label and string.format("%s (%.1f, %.1f)", label, x * 100, y * 100)
+        or string.format("(%.1f, %.1f)", x * 100, y * 100)
+    ns.Print(link .. " " .. where .. " |cff999999" .. L["Click the pin link to put the game's waypoint there."] .. "|r")
 end
 
 local function MakeMap(doc)

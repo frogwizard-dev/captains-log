@@ -144,7 +144,7 @@ function ns.Count(stat, amount)
         -- milestone!" and what it is, said plainly ("You've jumped 200 times!").
         local line = "|TInterface\\Icons\\Ability_Warrior_BattleShout:16:16:0:0|t |cffffd100"
             .. L["You've reached a milestone!"] .. "|r |cffffffff" .. ns.MilestoneSaying(stat, milestone) .. "|r"
-        if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(line) else ns.Print(line) end
+        FrogLib.Util.Say(line) -- a line printed in combat taints the chat history, so it waits for the end of combat
         milestone = NextMilestone(milestone)
     end
 end
